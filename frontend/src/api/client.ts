@@ -12,6 +12,9 @@ import type {
   BroadcastCampaign, PatientProfile, SuccessResponse, BroadcastSendResult,
 } from '../types'
 
+// ── API base URL ─────────────────────────────────────────────────────────────
+const BASE = 'https://flamingo-healthcare-production.up.railway.app'
+
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'flamingo_token'
 const USER_KEY  = 'flamingo_user'
