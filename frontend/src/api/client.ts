@@ -12,7 +12,7 @@ import type {
   CallRecord, CallbackRecord, RecallRecord, FollowUpRecord,
   BroadcastCampaign, PatientProfile, SuccessResponse, BroadcastSendResult,
 } from '../types'
-const BASE = import.meta.env.VITE_API_URL ?? ''
+const BASE = 'https://flamingo-healthcare-production.up.railway.app'
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'flamingo_token'
 const USER_KEY  = 'flamingo_user'
