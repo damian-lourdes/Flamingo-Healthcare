@@ -11,7 +11,7 @@ import type {
   CallRecord, CallbackRecord, RecallRecord, FollowUpRecord,
   BroadcastCampaign, PatientProfile, SuccessResponse, BroadcastSendResult,
 } from '../types'
-
+const BASE = import.meta.env.VITE_API_URL ?? ''
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'flamingo_token'
 const USER_KEY  = 'flamingo_user'
@@ -79,14 +79,14 @@ async function safeFetch<T>(path: string, opts?: RequestInit, fallback?: T): Pro
   }
 }
 
-const get  = <T>(path: string, fb?: T) => safeFetch<T>(path, undefined, fb)
+const get  = <T>(path: string, fb?: T) => safeFetch<T>('${BASE}${path}', undefined, fb)
 const post = <T>(path: string, body: unknown) =>
-  safeFetch<T>(path, { method: 'POST', body: JSON.stringify(body) })
+  safeFetch<T>('${BASE}${path}', { method: 'POST', body: JSON.stringify(body) })
 
 // ── Auth endpoints ────────────────────────────────────────────────────────────
 export const authApi = {
   login: async (username: string, password: string): Promise<{ access_token: string; username: string }> => {
-    const r = await fetch('/auth/login', {
+    const r = await fetch('${BASE}/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
