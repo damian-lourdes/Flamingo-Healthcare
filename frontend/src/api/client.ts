@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * API client — all fetch calls with:
  * - JWT auth header on every request
