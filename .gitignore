@@ -1,0 +1,20 @@
+# Python
+api/venv/
+api/__pycache__/
+api/app/__pycache__/
+api/app/routers/__pycache__/
+api/.env
+
+# Node
+outbound/node_modules/
+frontend/node_modules/
+frontend/dist/
+outbound/.env
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
