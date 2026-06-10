@@ -254,14 +254,18 @@ async function sync() {
 
   // Run with error isolation so one failure doesn't block others
   // MocDoc requires 3s between requests — throttle() in mocdoc.js handles this
+  // NOTE: Appointment Confirmation, Reschedule, Cancellation, Check In/Out,
+  // and OP Bill events are now handled via MocDoc webhooks (server/routes/webhooks.js).
+  // Only events WITHOUT webhooks are polled here.
   const tasks = [
-    ['OP visits',     () => syncOPVisits(date)],
-    ['New patients',  () => syncNewPatients(date)],
-    ['IP admissions', () => syncIPAdmissions(date)],
-    ['IP discharges', () => syncIPDischarges(date)],
-    ['Lab orders',    () => syncLabOrders(date)],
-    ['Lab results',   () => syncLabResults(date)],
-    ['OP bills',      () => syncOPBills(date)],
+    ['New patients',  () => syncNewPatients(date)],   // No webhook available
+    ['IP admissions', () => syncIPAdmissions(date)],  // No webhook available
+    ['IP discharges', () => syncIPDischarges(date)],  // No webhook available
+    ['Lab orders',    () => syncLabOrders(date)],     // No webhook available
+    ['Lab results',   () => syncLabResults(date)],    // No webhook available
+    // OP visits & bills now covered by Check In/Out + OP Bill webhooks
+    // ['OP visits',  () => syncOPVisits(date)],      // Replaced by webhooks
+    // ['OP bills',   () => syncOPBills(date)],       // Replaced by webhooks
   ];
 
   for (const [label, task] of tasks) {

@@ -305,3 +305,68 @@ async function runBirthdayJob() {
 }
 
 
+
+// ── NEW WEBHOOK-DRIVEN FUNCTIONS ──────────────────────────────────────────────
+
+// Check-in start — patient arrives (from Check In webhook)
+async function onConsultationStart({ phone, name, doctor, specialty, checkinKey }) {
+  const msg =
+    `Welcome to ${H}, ${name}! 🙏\n\n` +
+    `You have checked in with ${doctor}${specialty ? ` (${specialty})` : ''}.\n\n` +
+    `Please wait — you will be called shortly.\n` +
+    `📞 ${PHONE}`;
+  await send(phone, 'checkin', () => wa.sendText(phone, msg), 4, checkinKey, name, msg);
+}
+
+// Bill created — OP bill raised (from OP Bill Creation webhook)
+async function onBillCreated({ phone, name, doctor, billNo, amount, billKey }) {
+  const msg =
+    `Your bill has been created at ${H} 🧾\n\n` +
+    `📋 Bill No: ${billNo}\n` +
+    `👨‍⚕️ Consultant: ${doctor}\n` +
+    (amount ? `💰 Amount: ₹${amount}\n` : '') +
+    `\nFor queries: ${PHONE}`;
+  await send(phone, 'op_bill_created', () => wa.sendText(phone, msg), 1, billKey, name, msg);
+}
+
+// Bill cancelled (from OP Bill Cancellation webhook)
+async function onBillCancelled({ phone, name, billNo, reason }) {
+  const msg =
+    `Your bill ${billNo} at ${H} has been cancelled.\n\n` +
+    (reason ? `Reason: ${reason}\n\n` : '') +
+    `If you have questions, please contact us.\n` +
+    `📞 ${PHONE}`;
+  await send(phone, 'op_bill_cancelled', () => wa.sendText(phone, msg), 1, billNo, name, msg);
+}
+
+// Appointment rescheduled (from Appointment Reschedule webhook)
+async function onAppointmentRescheduled({ phone, name, doctor, specialty, newDate, apptKey }) {
+  const msg =
+    `Your appointment has been rescheduled ✅\n\n` +
+    `👨‍⚕️ ${doctor}${specialty ? `\n🏥 ${specialty}` : ''}\n` +
+    `📅 New date/time: ${newDate}\n` +
+    `📍 ${H}\n\n` +
+    `To reschedule again: ${PHONE}`;
+  await send(phone, 'appt_rescheduled', () => wa.sendText(phone, msg), 1, apptKey, name, msg);
+}
+
+// Appointment cancelled (from Appointment Cancellation webhook)
+async function onAppointmentCancelled({ phone, name, doctor, reason, apptKey }) {
+  const msg =
+    `Your appointment${doctor ? ` with ${doctor}` : ''} at ${H} has been cancelled.\n\n` +
+    (reason ? `Reason: ${reason}\n\n` : '') +
+    `📅 To rebook: ${BOOK}\n` +
+    `📞 ${PHONE}`;
+  await send(phone, 'appt_cancelled', () => wa.sendText(phone, msg), 1, apptKey, name, msg);
+}
+
+// Re-export with new functions appended
+const _orig = module.exports;
+module.exports = {
+  ..._orig,
+  onConsultationStart,
+  onBillCreated,
+  onBillCancelled,
+  onAppointmentRescheduled,
+  onAppointmentCancelled,
+};

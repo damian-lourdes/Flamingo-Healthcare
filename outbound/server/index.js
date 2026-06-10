@@ -43,7 +43,8 @@ app.use('/api',            dashboardRoutes);
 app.use('/dialer',         dialerRoutes);
 app.use('/api/engagement', engagementRoutes);
 app.use('/api/broadcast',  broadcastRoutes);
-app.use('/webhooks',       webhookRoutes);
+app.use('/webhooks',       webhookRoutes);  // legacy
+app.use('/hooks',          webhookRoutes);  // MocDoc + Exotel webhooks (new path)
 app.use('/api/scheduler',  schedulerRoutes);
 
 // Health check — used by pm2, load balancers, uptime monitors
