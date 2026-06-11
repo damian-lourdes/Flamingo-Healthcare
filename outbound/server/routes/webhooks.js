@@ -582,4 +582,25 @@ function formatDate(d) {
   return `${day} ${months[month] || ''} ${year}`;
 }
 
+
+// ── TEST ENDPOINT — bypasses dedup, sends WhatsApp directly ──────────────────
+// Remove this in production
+router.post('/test-whatsapp', async (req, res) => {
+  res.sendStatus(200);
+  const { phone, message } = req.body;
+  if (!phone || !message) {
+    console.log('[test] missing phone or message');
+    return;
+  }
+  const to = normalisePhone(phone, '91');
+  console.log(`[test] sending directly to ${to}`);
+  try {
+    const wa = require('../services/whatsapp');
+    const d = await wa.sendText(to, message);
+    console.log('[test] Meta response:', JSON.stringify(d));
+  } catch (e) {
+    console.error('[test] error:', e.message);
+  }
+});
+
 module.exports = router;
