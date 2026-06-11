@@ -42,7 +42,7 @@ export function OverviewPage() {
             </div>
             <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>
               WhatsApp automation is not running. Patient messages are not being sent.
-              Check the outbound service on Railway.
+              Check that the outbound service is running.
             </div>
           </div>
         </div>
@@ -60,7 +60,7 @@ export function OverviewPage() {
               WhatsApp sending errors detected
             </div>
             <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>
-              {state.whatsapp_error || 'Multiple consecutive send failures. Check Meta API credentials.'}
+              {state.whatsapp_error || 'Multiple consecutive WhatsApp send failures detected. Check Meta API credentials and token validity.'}
             </div>
           </div>
         </div>
