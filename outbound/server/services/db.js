@@ -150,7 +150,7 @@ async function setup() {
       ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 'sent',
       ADD COLUMN IF NOT EXISTS consent_recorded BOOLEAN DEFAULT FALSE;
 
-  \`);
+  `);
   console.log('[db] Schema ready');
 }
 
