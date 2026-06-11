@@ -12,13 +12,15 @@ async function post(payload) {
   });
   const d = await r.json();
   if (!r.ok) {
-    console.error('[wa] send error:', JSON.stringify(d?.error || d));
-    // Track send failure in health state
+    console.error('[wa] SEND FAILED:', JSON.stringify(d?.error || d));
+    console.error('[wa] HTTP status:', r.status);
+    console.error('[wa] To:', payload.to, 'Type:', payload.type);
     healthState.lastError     = d?.error?.message || 'Send failed';
     healthState.lastErrorAt   = new Date().toISOString();
     healthState.consecutiveFails++;
   } else {
-    // Reset failure counter on success
+    const msgId = d?.messages?.[0]?.id;
+    console.log(`[wa] ✓ sent to ${payload.to} msgId:${msgId}`);
     healthState.consecutiveFails = 0;
     healthState.lastSuccess       = new Date().toISOString();
   }
