@@ -6,7 +6,7 @@
 require('dotenv').config();
 
 const required = [
-  'WHATSAPP_TOKEN', 'PHONE_NUMBER_ID',
+  'META_ACCESS_TOKEN', 'META_PHONE_NUMBER_ID',
   'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
 ];
 
@@ -21,8 +21,8 @@ module.exports = {
   port: parseInt(process.env.PORT) || 3000,
 
   whatsapp: {
-    token:         process.env.WHATSAPP_TOKEN  || '',
-    phoneNumberId: process.env.PHONE_NUMBER_ID || '',
+    token:         process.env.META_ACCESS_TOKEN  || '',
+    phoneNumberId: process.env.META_PHONE_NUMBER_ID || '',
     appSecret:     process.env.APP_SECRET      || '',
     verifyToken:   process.env.VERIFY_TOKEN    || 'flamingo_verify_token_123',
     apiVersion:    'v21.0',
