@@ -6,10 +6,13 @@ Mirrors Node.js: GET /api/dashboard/state, /history, /patients
 from fastapi import APIRouter, Query
 from typing import Optional, List
 from datetime import date
+import httpx
 
 from app.database import database, outbound_messages, patient_profiles, engagement_log, recall_schedule, follow_up_queue, callback_queue, broadcast_campaigns
 from app import models
 import sqlalchemy
+
+OUTBOUND_URL = "http://localhost:3000"
 
 router = APIRouter()
 
@@ -56,6 +59,29 @@ async def get_state():
         "SELECT COUNT(*) FROM broadcast_campaigns"
     )
 
+    # Check outbound service health (WhatsApp sending)
+    outbound_health = None
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(f"{OUTBOUND_URL}/health")
+            outbound_health = r.json()
+    except Exception:
+        outbound_health = {"status": "offline", "whatsapp": {"healthy": False}}
+
+    # Delivery stats (last 7 days)
+    delivery_rows = await database.fetch_all(sqlalchemy.text("""
+        SELECT status, COUNT(*) as count
+        FROM message_delivery
+        WHERE updated_at >= NOW() - INTERVAL '7 days'
+        GROUP BY status
+    """))
+    delivery_stats = {r["status"]: r["count"] for r in delivery_rows}
+
+    # Consent count
+    consent_count = await database.fetch_val(
+        "SELECT COUNT(*) FROM consent_log"
+    ) or 0
+
     return models.DashboardState(
         dialer_stats=models.DialerStats(
             total_calls=dialer_row["total_calls"] or 0,
@@ -74,6 +100,11 @@ async def get_state():
         messages_sent=messages_sent or 0,
         patients_reached=patients_reached or 0,
         broadcasts_sent=broadcasts_sent or 0,
+        outbound_healthy=outbound_health.get("status") == "ok",
+        whatsapp_healthy=outbound_health.get("whatsapp", {}).get("healthy", False),
+        whatsapp_error=outbound_health.get("whatsapp", {}).get("lastError"),
+        delivery_stats=delivery_stats,
+        consented_patients=consent_count,
     )
 
 

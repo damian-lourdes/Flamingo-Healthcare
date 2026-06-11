@@ -86,6 +86,14 @@ class DashboardState(BaseModel):
     messages_sent: int
     patients_reached: int
     broadcasts_sent: int
+    # Service health
+    outbound_healthy: bool = True
+    whatsapp_healthy: bool = True
+    whatsapp_error: Optional[str] = None
+    # Delivery stats (last 7 days)
+    delivery_stats: dict = {}
+    # Consent count (DPDP)
+    consented_patients: int = 0
 
 
 # ── Dialer ─────────────────────────────────────────────────────────────────────

@@ -25,6 +25,22 @@ const engagement = require('../services/engagement');
 const db         = require('../services/db');
 const config     = require('../config');
 
+// ── Webhook rate limiting middleware ──────────────────────────────────────────
+// Protects against misconfigured PBX flooding and malicious requests
+function rateLimitWebhook(maxPerMinute = 60) {
+  return (req, res, next) => {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    if (!db.checkWebhookRateLimit(ip, maxPerMinute)) {
+      console.warn(`[webhook] rate limit exceeded for IP ${ip}`);
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    next();
+  };
+}
+
+// Apply rate limiting to all webhook routes
+router.use(rateLimitWebhook(120)); // 120 requests/min per IP
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function ack(res) { res.sendStatus(200); }  // Always ack fast — MocDoc has short timeout
 
@@ -37,6 +53,62 @@ function normalisePhone(phone, isdCode) {
   if (digits.length === 13 && digits.startsWith('091')) return `+${digits.slice(1)}`;
   return String(phone).startsWith('+') ? phone : `+${digits}`;
 }
+
+// ── Meta WhatsApp delivery status webhook ─────────────────────────────────────
+// Meta POSTs here for every message: sent → delivered → read (or failed)
+// Register this URL in Meta Business Manager → WhatsApp → Configuration
+router.post('/whatsapp', async (req, res) => {
+  res.sendStatus(200); // Always ack immediately
+  try {
+    const body = req.body;
+    if (body.object !== 'whatsapp_business_account') return;
+
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        const val = change.value || {};
+
+        // ── Delivery status updates ──────────────────────────────────────────
+        for (const status of val.statuses || []) {
+          const waMessageId = status.id;
+          const phone       = `+${status.recipient_id}`;
+          const st          = status.status;             // sent|delivered|read|failed
+          const errorCode   = status.errors?.[0]?.code?.toString() || null;
+          const errorMsg    = status.errors?.[0]?.message || null;
+
+          await db.updateDeliveryStatus({ waMessageId, phone, status: st, errorCode, errorMsg });
+
+          if (st === 'failed') {
+            console.error(`[wa-delivery] FAILED ${phone} msg:${waMessageId} err:${errorCode} ${errorMsg}`);
+          } else {
+            console.log(`[wa-delivery] ${st} → ${phone}`);
+          }
+        }
+
+        // ── Inbound messages — opt-out handling ──────────────────────────────
+        for (const msg of val.messages || []) {
+          const phone = `+${msg.from}`;
+          const text  = (msg.text?.body || '').trim().toUpperCase();
+
+          // STOP / UNSUBSCRIBE → set opt_in = false
+          if (['STOP', 'UNSUBSCRIBE', 'OPT OUT', 'OPTOUT'].includes(text)) {
+            await db.pool?.query(
+              'UPDATE patient_profiles SET opt_in=FALSE WHERE phone=$1', [phone]
+            ).catch(() => {});
+            console.log(`[wa-inbound] opt-out: ${phone}`);
+          }
+
+          // START / YES → re-enable opt_in
+          if (['START', 'SUBSCRIBE', 'YES'].includes(text)) {
+            await db.pool?.query(
+              'UPDATE patient_profiles SET opt_in=TRUE WHERE phone=$1', [phone]
+            ).catch(() => {});
+            console.log(`[wa-inbound] opt-in: ${phone}`);
+          }
+        }
+      }
+    }
+  } catch (e) { console.error('[wa-webhook] error:', e.message); }
+});
 
 // ── WhatsApp webhook verification ─────────────────────────────────────────────
 router.get('/whatsapp', (req, res) => {

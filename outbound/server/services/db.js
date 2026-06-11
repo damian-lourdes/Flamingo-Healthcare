@@ -113,7 +113,44 @@ async function setup() {
       failed_count    INTEGER DEFAULT 0,
       sent_at         TIMESTAMPTZ DEFAULT NOW()
     );
-  `);
+
+    -- DPDP Act: patient consent log
+    -- Records first WhatsApp contact as implicit opt-in
+    CREATE TABLE IF NOT EXISTS consent_log (
+      id           SERIAL PRIMARY KEY,
+      phone        TEXT NOT NULL,
+      patient_name TEXT,
+      consent_type TEXT NOT NULL DEFAULT 'implicit_whatsapp',
+      trigger_type TEXT,
+      consented_at TIMESTAMPTZ DEFAULT NOW(),
+      ip_address   TEXT,
+      notes        TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_consent_phone
+      ON consent_log(phone);  -- one record per patient (first contact)
+
+    -- Meta delivery tracking: status updates per message
+    CREATE TABLE IF NOT EXISTS message_delivery (
+      id           SERIAL PRIMARY KEY,
+      wa_message_id TEXT NOT NULL,
+      phone        TEXT NOT NULL,
+      status       TEXT NOT NULL,  -- sent | delivered | read | failed
+      error_code   TEXT,
+      error_msg    TEXT,
+      updated_at   TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_wamid
+      ON message_delivery(wa_message_id);
+    CREATE INDEX IF NOT EXISTS idx_delivery_phone
+      ON message_delivery(phone, updated_at DESC);
+
+    -- Outbound messages: add wa_message_id column for delivery tracking
+    ALTER TABLE outbound_messages
+      ADD COLUMN IF NOT EXISTS wa_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 'sent',
+      ADD COLUMN IF NOT EXISTS consent_recorded BOOLEAN DEFAULT FALSE;
+
+  \`);
   console.log('[db] Schema ready');
 }
 
@@ -210,6 +247,13 @@ module.exports = {
   upsertPatient, getPatients, getBirthdaysToday,
   getBroadcastLists, createBroadcastList, getBroadcastListMembers,
   logBroadcast, getBroadcastHistory,
+  // Consent tracking (DPDP Act)
+  recordConsent, hasConsent,
+  // Meta delivery status tracking
+  updateDeliveryStatus, getDeliveryStats,
+  // Webhook rate limiting
+  checkWebhookRateLimit,
+  setup,
 };
 
 // ── Outbound message log (WhatsApp chat history per patient) ──────────────────
@@ -255,7 +299,8 @@ async function getPatientMessageHistory(phone) {
 }
 
 // ── Patient profiles (for personalised messages) ──────────────────────────────
-async function upsertPatient({ phone, name, dob, specialty, doctor, branch }) {
+async function upsertPatient({ phone, name, dob, specialty, doctor, branch, ref_id }) {
+  // ref_id = MocDoc phid (e.g. BH22470_001) — stored in notes field for reference
   await pool.query(`
     INSERT INTO patient_profiles(phone, name, dob, specialty, doctor, branch, last_contact)
     VALUES($1,$2,$3,$4,$5,$6,NOW())
@@ -266,6 +311,13 @@ async function upsertPatient({ phone, name, dob, specialty, doctor, branch }) {
       doctor=COALESCE(EXCLUDED.doctor, patient_profiles.doctor),
       last_contact=NOW()
   `, [phone, name||null, dob||null, specialty||null, doctor||null, branch||'Ambattur']);
+  if (ref_id) {
+    // Log the MocDoc patient ID to engagement_log for traceability
+    await pool.query(
+      `INSERT INTO engagement_log(phone, trigger_type, ref_id) VALUES($1,'registration',$2) ON CONFLICT DO NOTHING`,
+      [phone, ref_id]
+    ).catch(() => {});
+  }
 }
 
 async function getPatients({ specialty, doctor, search } = {}) {
@@ -330,5 +382,87 @@ async function getBroadcastHistory() {
 }
 
 // ── Export all ───────────────────────────────────────────────────────────────
-// (replaces the earlier module.exports at end of file)
+// ── DPDP Consent tracking ─────────────────────────────────────────────────────
+// Called on first WhatsApp send — records implicit opt-in for DPDP compliance
+async function recordConsent({ phone, patientName, triggerType }) {
+  try {
+    await pool.query(`
+      INSERT INTO consent_log(phone, patient_name, consent_type, trigger_type)
+      VALUES($1, $2, 'implicit_whatsapp', $3)
+      ON CONFLICT(phone) DO NOTHING
+    `, [phone, patientName || null, triggerType || null]);
+  } catch (e) {
+    // Non-fatal — log and continue
+    console.error('[consent] error:', e.message);
+  }
+}
+
+async function hasConsent(phone) {
+  const row = await q1('SELECT id FROM consent_log WHERE phone=$1', [phone]);
+  return !!row;
+}
+
+// ── Message delivery tracking ─────────────────────────────────────────────────
+// Called by Meta delivery webhook handler
+async function updateDeliveryStatus({ waMessageId, phone, status, errorCode, errorMsg }) {
+  try {
+    await pool.query(`
+      INSERT INTO message_delivery(wa_message_id, phone, status, error_code, error_msg, updated_at)
+      VALUES($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT(wa_message_id) DO UPDATE SET
+        status     = EXCLUDED.status,
+        error_code = EXCLUDED.error_code,
+        error_msg  = EXCLUDED.error_msg,
+        updated_at = NOW()
+    `, [waMessageId, phone, status, errorCode || null, errorMsg || null]);
+
+    // Sync status to outbound_messages for dashboard display
+    await pool.query(`
+      UPDATE outbound_messages
+      SET delivery_status = $1
+      WHERE wa_message_id = $2
+    `, [status, waMessageId]);
+  } catch (e) {
+    console.error('[delivery] error:', e.message);
+  }
+}
+
+async function getDeliveryStats() {
+  const rows = await q(`
+    SELECT
+      status,
+      COUNT(*) AS count
+    FROM message_delivery
+    WHERE updated_at >= NOW() - INTERVAL '7 days'
+    GROUP BY status
+    ORDER BY count DESC
+  `);
+  return rows;
+}
+
+// ── Webhook rate limiting (in-memory, per IP) ─────────────────────────────────
+const webhookHits = new Map();
+function checkWebhookRateLimit(ip, maxPerMinute = 60) {
+  const now  = Date.now();
+  const key  = ip;
+  const data = webhookHits.get(key) || { count: 0, resetAt: now + 60000 };
+
+  if (now > data.resetAt) {
+    data.count   = 0;
+    data.resetAt = now + 60000;
+  }
+
+  data.count++;
+  webhookHits.set(key, data);
+
+  return data.count <= maxPerMinute;
+}
+
+// Clean up old entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, data] of webhookHits.entries()) {
+    if (now > data.resetAt + 120000) webhookHits.delete(key);
+  }
+}, 5 * 60 * 1000);
 

@@ -3,6 +3,8 @@
  * Entry point: boots Express, wires all routes, starts background jobs.
  */
 const path       = require('path');
+const wa         = require('./services/whatsapp');
+const db         = require('./services/db');
 const express    = require('express');
 const helmet     = require('helmet');
 
@@ -48,12 +50,30 @@ app.use('/hooks',          webhookRoutes);  // MocDoc + Exotel webhooks (new pat
 app.use('/api/scheduler',  schedulerRoutes);
 
 // Health check — used by pm2, load balancers, uptime monitors
-app.get('/health', (_req, res) => res.json({
-  status:  'ok',
-  service: 'flamingo-outbound',
-  env:     config.env,
-  uptime:  Math.floor(process.uptime()),
-}));
+app.get('/health', async (_req, res) => {
+  const waHealth      = wa.getHealth();
+  const deliveryStats = await db.getDeliveryStats().catch(() => []);
+
+  const statusObj = {
+    status:        waHealth.healthy ? 'ok' : 'degraded',
+    service:       'flamingo-outbound',
+    env:           config.env,
+    uptime:        Math.floor(process.uptime()),
+    whatsapp: {
+      healthy:          waHealth.healthy,
+      consecutiveFails: waHealth.consecutiveFails,
+      lastSuccess:      waHealth.lastSuccess,
+      lastError:        waHealth.lastError,
+      lastErrorAt:      waHealth.lastErrorAt,
+    },
+    delivery: deliveryStats.reduce((acc, r) => {
+      acc[r.status] = parseInt(r.count);
+      return acc;
+    }, {}),
+  };
+
+  res.status(waHealth.healthy ? 200 : 503).json(statusObj);
+});
 
 // SPA fallback — serve index.html for any unmatched route
 app.get('*', (_req, res) => {

@@ -31,6 +31,14 @@ export interface DashboardState {
   messages_sent: number
   patients_reached: number
   broadcasts_sent: number
+  // Service health
+  outbound_healthy: boolean
+  whatsapp_healthy: boolean
+  whatsapp_error: string | null
+  // Delivery stats
+  delivery_stats: Record<string, number>
+  // DPDP consent
+  consented_patients: number
 }
 
 export interface CallRecord {
