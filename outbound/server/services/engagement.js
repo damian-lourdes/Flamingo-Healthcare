@@ -39,16 +39,19 @@ async function onEnquiry({ phone, name }) {
 }
 
 // 2. Appointment booked — confirmation
-async function onAppointmentBooked({ phone, name, doctor, specialty, datetime }) {
-  await send(phone, 'appt_booked', () => wa.sendText(phone,
+async function onAppointmentBooked({ phone, name, doctor, specialty, datetime, apptKey, notes }) {
+  const notesLine = notes ? `\n📝 Notes: ${notes}` : '';
+  const msg =
     `Appointment confirmed ✅\n\n` +
+    `👤 ${name}\n` +
     `👨‍⚕️ ${doctor}\n` +
-    `🏥 ${specialty}\n` +
+    (specialty ? `🏥 ${specialty}\n` : '') +
     `📅 ${datetime}\n` +
-    `📍 ${H}\n\n` +
-    `📋 Please carry:\n• Photo ID\n• Previous reports / prescriptions\n• Insurance card (if any)\n\n` +
-    `To reschedule or cancel, call: ${PHONE}`
-  ));
+    `📍 ${H}\n` +
+    notesLine +
+    `\n📋 Please carry:\n• Photo ID\n• Previous reports / prescriptions\n• Insurance card (if any)\n\n` +
+    `To reschedule or cancel, call: ${PHONE}`;
+  await send(phone, 'appt_booked', () => wa.sendText(phone, msg), 1, apptKey, name, msg);
 }
 
 // 3. Same-day reminder (2 hours before)
@@ -309,54 +312,96 @@ async function runBirthdayJob() {
 // ── NEW WEBHOOK-DRIVEN FUNCTIONS ──────────────────────────────────────────────
 
 // Check-in start — patient arrives (from Check In webhook)
-async function onConsultationStart({ phone, name, doctor, specialty, checkinKey }) {
+async function onConsultationStart({ phone, name, doctor, specialty, checkinKey, token }) {
+  const tokenLine = token ? `\n🎫 Your token number: *${token}*` : '';
   const msg =
     `Welcome to ${H}, ${name}! 🙏\n\n` +
-    `You have checked in with ${doctor}${specialty ? ` (${specialty})` : ''}.\n\n` +
+    `You have checked in with ${doctor}${specialty ? ` (${specialty})` : ''}.${tokenLine}\n\n` +
     `Please wait — you will be called shortly.\n` +
     `📞 ${PHONE}`;
   await send(phone, 'checkin', () => wa.sendText(phone, msg), 4, checkinKey, name, msg);
 }
 
 // Bill created — OP bill raised (from OP Bill Creation webhook)
-async function onBillCreated({ phone, name, doctor, billNo, amount, billKey }) {
+async function onBillCreated({ phone, name, doctor, billNo, amount, amountReceived, paymentType, discount, itemList, billKey }) {
+  const itemSection = itemList && itemList.length
+    ? `\n📝 Services:\n${itemList.join('\n')}\n`
+    : '';
+  const discountLine = discount && discount > 0
+    ? `🏷️ Discount: ₹${discount}\n`
+    : '';
+  const paymentLine = paymentType
+    ? `💳 Payment: ${paymentType}\n`
+    : '';
   const msg =
-    `Your bill has been created at ${H} 🧾\n\n` +
+    `Your bill is ready at ${H} 🧾\n\n` +
     `📋 Bill No: ${billNo}\n` +
     `👨‍⚕️ Consultant: ${doctor}\n` +
-    (amount ? `💰 Amount: ₹${amount}\n` : '') +
+    itemSection +
+    discountLine +
+    (amount        ? `💰 Amount Payable: ₹${amount}\n` : '') +
+    (amountReceived ? `✅ Amount Received: ₹${amountReceived}\n` : '') +
+    paymentLine +
     `\nFor queries: ${PHONE}`;
   await send(phone, 'op_bill_created', () => wa.sendText(phone, msg), 1, billKey, name, msg);
 }
 
 // Bill cancelled (from OP Bill Cancellation webhook)
-async function onBillCancelled({ phone, name, billNo, reason }) {
+async function onBillCancelled({ phone, name, billNo, reason, amountPay, cancelledBy }) {
   const msg =
-    `Your bill ${billNo} at ${H} has been cancelled.\n\n` +
-    (reason ? `Reason: ${reason}\n\n` : '') +
-    `If you have questions, please contact us.\n` +
+    `Your bill has been cancelled at ${H} 🧾\n\n` +
+    `📋 Bill No: ${billNo}\n` +
+    (amountPay ? `💰 Bill Amount: ₹${amountPay}\n` : '') +
+    (reason    ? `📝 Reason: ${reason}\n` : '') +
+    `\nIf you have already made a payment, please contact us for a refund.\n` +
     `📞 ${PHONE}`;
   await send(phone, 'op_bill_cancelled', () => wa.sendText(phone, msg), 1, billNo, name, msg);
 }
 
 // Appointment rescheduled (from Appointment Reschedule webhook)
-async function onAppointmentRescheduled({ phone, name, doctor, specialty, newDate, apptKey }) {
+async function onAppointmentRescheduled({ phone, name, doctor, specialty, newDate, oldDate, apptKey, notes }) {
+  const oldLine  = oldDate  ? `📅 Previous time: ~${oldDate}~\n` : '';
+  const notesLine = notes   ? `\n📝 Notes: ${notes}` : '';
   const msg =
     `Your appointment has been rescheduled ✅\n\n` +
-    `👨‍⚕️ ${doctor}${specialty ? `\n🏥 ${specialty}` : ''}\n` +
-    `📅 New date/time: ${newDate}\n` +
-    `📍 ${H}\n\n` +
-    `To reschedule again: ${PHONE}`;
+    `👤 ${name}\n` +
+    `👨‍⚕️ ${doctor}\n` +
+    (specialty ? `🏥 ${specialty}\n` : '') +
+    oldLine +
+    `📅 New time: ${newDate}\n` +
+    `📍 ${H}\n` +
+    notesLine +
+    `\n📋 Please carry Photo ID and previous reports.\n` +
+    `To reschedule or cancel: ${PHONE}`;
   await send(phone, 'appt_rescheduled', () => wa.sendText(phone, msg), 1, apptKey, name, msg);
 }
 
 // Appointment cancelled (from Appointment Cancellation webhook)
-async function onAppointmentCancelled({ phone, name, doctor, reason, apptKey }) {
-  const msg =
-    `Your appointment${doctor ? ` with ${doctor}` : ''} at ${H} has been cancelled.\n\n` +
-    (reason ? `Reason: ${reason}\n\n` : '') +
-    `📅 To rebook: ${BOOK}\n` +
-    `📞 ${PHONE}`;
+// cancelPerson: "Doctor" = hospital cancelled, "Patient" = patient cancelled
+async function onAppointmentCancelled({ phone, name, doctor, specialty, datetime, reason, cancelPerson, apptKey }) {
+  const byDoctor = cancelPerson && cancelPerson.toLowerCase() === 'doctor';
+
+  let msg;
+  if (byDoctor) {
+    // Hospital / doctor cancelled — more apologetic tone
+    msg =
+      `Dear ${name},\n\n` +
+      `We regret to inform you that your appointment${doctor ? ` with ${doctor}` : ''} at ${H} has been cancelled.\n\n` +
+      (datetime ? `📅 Original time: ${datetime}\n` : '') +
+      (reason   ? `📝 Reason: ${reason}\n` : '') +
+      `\nWe sincerely apologise for the inconvenience.\n` +
+      `📅 Please rebook at your convenience: ${BOOK}\n` +
+      `📞 ${PHONE}`;
+  } else {
+    // Patient cancelled — acknowledge and invite rebooking
+    msg =
+      `Your appointment${doctor ? ` with ${doctor}` : ''} at ${H} has been cancelled.\n\n` +
+      (datetime ? `📅 Was scheduled: ${datetime}\n` : '') +
+      (reason   ? `📝 Reason: ${reason}\n` : '') +
+      `\nWhenever you are ready, we are here for you.\n` +
+      `📅 Book again: ${BOOK}\n` +
+      `📞 ${PHONE}`;
+  }
   await send(phone, 'appt_cancelled', () => wa.sendText(phone, msg), 1, apptKey, name, msg);
 }
 
