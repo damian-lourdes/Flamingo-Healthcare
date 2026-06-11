@@ -4,7 +4,7 @@ import { StatCard, Card, CallBadge, Btn, Mono, Empty } from '../components/ui'
 import { ago } from '../utils'
 import type { DialerStats, CallRecord, CallbackRecord } from '../types'
 
-const BASE = 'https://flamingo-healthcare-production.up.railway.app'
+const BASE = 'https://outbound-production-5e64.up.railway.app'
 
 export function DialerPage() {
   const [stats, setStats]           = useState<DialerStats | null>(null)
