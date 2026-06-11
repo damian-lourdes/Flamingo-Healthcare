@@ -3,8 +3,6 @@
  * Entry point: boots Express, wires all routes, starts background jobs.
  */
 const path       = require('path');
-const wa         = require('./services/whatsapp');
-const db         = require('./services/db');
 const express    = require('express');
 const helmet     = require('helmet');
 
@@ -12,6 +10,7 @@ const config     = require('./config');
 const logger     = require('./middleware/logger');
 const errorHandler = require('./middleware/errorHandler');
 const db         = require('./services/db');
+const wa         = require('./services/whatsapp');
 const sync       = require('./services/mocdoc-sync');
 const engagement = require('./services/engagement');
 const scheduler  = require('./services/scheduler');
