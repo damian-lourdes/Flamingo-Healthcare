@@ -9,10 +9,15 @@ const config = require('../config');
 const { name: H, phone: PHONE, mapLink: MAP, reviewLink: REVIEW, bookingUrl: BOOK } = config.hospital;
 
 async function send(phone, type, fn, dedupHrs=24, refId=null, patientName=null, msgText=null) {
-  if (await db.alreadySent(phone, type, dedupHrs)) {
-    console.log(`[eng] skip ${type} → ${phone}`); return;
+  console.log(`[eng] attempting ${type} → ${phone}`);
+  const skip = await db.alreadySent(phone, type, dedupHrs).catch(e => {
+    console.error(`[eng] dedup check failed: ${e.message}`); return false;
+  });
+  if (skip) {
+    console.log(`[eng] skip ${type} → ${phone} (sent within ${dedupHrs}h)`); return;
   }
   try {
+    console.log(`[eng] sending ${type} → ${phone}`);
     await fn();
     await db.logSent(phone, type, refId);
     // Log to outbound history for dashboard

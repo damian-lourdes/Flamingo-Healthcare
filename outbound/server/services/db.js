@@ -238,6 +238,7 @@ async function listState() {
 setup().catch(err => { console.error('[db] setup failed:', err.message); process.exit(1); });
 
 module.exports = {
+  pool,  // exported for direct query access in whatsapp.js
   alreadySent, logSent,
   scheduleRecall, getDueRecalls, markRecallSent,
   addNoShow, getPendingNoShows, markNoShowRecovered,
