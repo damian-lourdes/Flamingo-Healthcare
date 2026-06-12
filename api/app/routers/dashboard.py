@@ -60,14 +60,21 @@ async def get_state():
         "SELECT COUNT(*) FROM broadcast_campaigns"
     )
 
-    # Check outbound service health (WhatsApp sending)
-    outbound_health = None
+    # Check outbound service health. Two independent signals:
+    #   - reachable: did the outbound process answer at all? (it is "online")
+    #   - whatsapp.healthy: are WhatsApp sends currently succeeding?
+    # /health returns HTTP 503 when WhatsApp is degraded but the service is still
+    # running. httpx does not raise on 503, so reaching the assignment below means
+    # the process answered and is therefore online, regardless of WhatsApp state.
+    outbound_reachable = False
+    outbound_health = {"status": "offline", "whatsapp": {"healthy": False}}
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"{OUTBOUND_URL}/health")
             outbound_health = r.json()
+            outbound_reachable = True
     except Exception:
-        outbound_health = {"status": "offline", "whatsapp": {"healthy": False}}
+        outbound_reachable = False
 
     # Delivery stats (last 7 days)
     delivery_rows = await database.fetch_all(sqlalchemy.text("""
@@ -101,7 +108,7 @@ async def get_state():
         messages_sent=messages_sent or 0,
         patients_reached=patients_reached or 0,
         broadcasts_sent=broadcasts_sent or 0,
-        outbound_healthy=outbound_health.get("status") == "ok",
+        outbound_healthy=outbound_reachable,
         whatsapp_healthy=outbound_health.get("whatsapp", {}).get("healthy", False),
         whatsapp_error=outbound_health.get("whatsapp", {}).get("lastError"),
         delivery_stats=delivery_stats,
