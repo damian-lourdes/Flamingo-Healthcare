@@ -180,14 +180,14 @@ async function sendBroadcast({ recipients, message }) {
   return { sent, failed };
 }
 
-// 12. 30/60/90-day recall
+// 12. Post visit follow up — 30/60/90-day check-in after consultation
 async function onRecallDue({ phone, name, specialty, recallDays, recallId }) {
-  await send(phone, `recall_${recallDays}d`, async () => {
+  await send(phone, `post_visit_followup_${recallDays}d`, async () => {
     await wa.sendText(phone,
-      `Hi ${name}! 👋 Flamingo Healthcare reminder.\n\n` +
-      `It has been ${recallDays} days since your last ${specialty} visit.\n\n` +
-      `Regular check-ups help catch issues early.\n` +
-      `📅 Book now: ${BOOK}\n` +
+      `Hi ${name}! Flamingo Healthcare checking in.\n\n` +
+      `It has been ${recallDays} days since your last visit${specialty ? ` (${specialty})` : ''}.\n\n` +
+      `How are you doing? If you need a review or have any concerns, we are here.\n` +
+      `📅 Book a follow-up: ${BOOK}\n` +
       `📞 ${PHONE}`
     );
     await db.markRecallSent(recallId);

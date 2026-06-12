@@ -159,3 +159,12 @@ def _normalise_phone(phone: str) -> str:
     if len(digits) == 13 and digits.startswith("091"):
         return f"+91{digits[3:]}"
     return phone if phone.startswith("+") else f"+{digits}"
+
+
+@router.post("/followup/{followup_id}/done")
+async def mark_followup_done(followup_id: int):
+    await database.execute(
+        "UPDATE follow_up_queue SET status='done' WHERE id=:id",
+        {"id": followup_id}
+    )
+    return {"success": True}

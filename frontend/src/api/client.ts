@@ -131,6 +131,8 @@ export const api = {
     post<SuccessResponse>('/api/dialer/call/manual', body),
   markCallbackDone: (id: number, status: string) =>
     post<SuccessResponse>(`/api/dialer/callback/${id}/done`, { status }),
+  markFollowUpDone: (id: number) =>
+    post<SuccessResponse>(`/api/dialer/followup/${id}/done`, { status: 'done' }),
 
   // Broadcast
   broadcastHistory: () => get<BroadcastCampaign[]>('/api/broadcast/history', []),
