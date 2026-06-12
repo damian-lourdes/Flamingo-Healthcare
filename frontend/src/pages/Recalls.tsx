@@ -4,8 +4,8 @@ import { Card, Mono, Empty } from '../components/ui'
 import { ago } from '../utils'
 import type { RecallRecord, FollowUpRecord } from '../types'
 
-export function RecallsPage() {
-  const [recalls, setRecalls]   = useState<RecallRecord[]>([])
+export function FollowUpsPage() {
+  const [recalls,  setRecalls]  = useState<RecallRecord[]>([])
   const [followups, setFollowups] = useState<FollowUpRecord[]>([])
 
   useEffect(() => {
@@ -14,20 +14,23 @@ export function RecallsPage() {
   }, [])
 
   return (
-    <div className="grid-2">
-      <Card title="Due recalls" subtitle="30/60/90-day check-up reminders">
+    <div>
+      <Card title="Due recalls" subtitle="Patients due for a follow-up visit" style={{ marginBottom: 12 }}>
         {recalls.length === 0
           ? <Empty msg="No due recalls" />
           : (
             <table>
-              <thead><tr><th>Patient</th><th>Specialty</th><th>Days</th><th>Due</th></tr></thead>
+              <thead>
+                <tr><th>Patient</th><th>Phone</th><th>Specialty</th><th>Due</th><th>Days</th></tr>
+              </thead>
               <tbody>
                 {recalls.map(r => (
                   <tr key={r.id}>
-                    <td style={{ fontWeight: 500 }}>{r.name || r.phone}</td>
-                    <td style={{ color: 'var(--text2)', fontSize: 12.5 }}>{r.specialty || '—'}</td>
-                    <td><Mono>{r.recall_days}d</Mono></td>
-                    <td><Mono>{ago(r.recall_at)}</Mono></td>
+                    <td>{r.name || '—'}</td>
+                    <td><Mono>{r.phone}</Mono></td>
+                    <td>{r.specialty || '—'}</td>
+                    <td><Mono>{r.recall_at ? ago(r.recall_at) : '—'}</Mono></td>
+                    <td><Mono>{r.recall_days ? `${r.recall_days}d` : '—'}</Mono></td>
                   </tr>
                 ))}
               </tbody>
@@ -36,18 +39,23 @@ export function RecallsPage() {
         }
       </Card>
 
-      <Card title="No-show recovery queue">
+      <Card title="Follow-up queue" subtitle="Patients who need a follow-up call">
         {followups.length === 0
           ? <Empty msg="No pending follow-ups" />
           : (
             <table>
-              <thead><tr><th>Patient</th><th>Doctor</th><th>Missed slot</th></tr></thead>
+              <thead>
+                <tr><th>Patient</th><th>Phone</th><th>Doctor</th><th>Specialty</th><th>Original appt</th><th>Added</th></tr>
+              </thead>
               <tbody>
                 {followups.map(f => (
                   <tr key={f.id}>
-                    <td style={{ fontWeight: 500 }}>{f.name || f.phone}</td>
-                    <td style={{ color: 'var(--text2)', fontSize: 12.5 }}>{f.doctor || '—'}</td>
+                    <td>{f.name || '—'}</td>
+                    <td><Mono>{f.phone}</Mono></td>
+                    <td>{f.doctor || '—'}</td>
+                    <td>{f.specialty || '—'}</td>
                     <td><Mono>{f.original_dt || '—'}</Mono></td>
+                    <td><Mono>{ago(f.created_at)}</Mono></td>
                   </tr>
                 ))}
               </tbody>

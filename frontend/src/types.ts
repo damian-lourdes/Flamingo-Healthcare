@@ -120,7 +120,7 @@ export type Page =
   | 'overview'
   | 'history'
   | 'dialer'
-  | 'recalls'
+  | 'followups'
   | 'broadcast'
   | 'personalised'
   | 'automations'

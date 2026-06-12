@@ -4,7 +4,7 @@ import { LoginPage }        from './pages/Login'
 import { OverviewPage }     from './pages/Overview'
 import { HistoryPage }      from './pages/History'
 import { DialerPage }       from './pages/Dialer'
-import { RecallsPage }      from './pages/Recalls'
+import { FollowUpsPage }      from './pages/Recalls'
 import { BroadcastPage }    from './pages/Broadcast'
 import { PersonalisedPage } from './pages/Personalised'
 import { AutomationsPage }  from './pages/Automations'
@@ -19,7 +19,7 @@ const PAGE_META: Record<Page, [string, string]> = {
   overview:    ['Overview',          'Live stats'],
   history:     ['Message History',   'Date-wise outbound WhatsApp messages'],
   dialer:      ['Dialer',            'Inbound call tracking & callbacks'],
-  recalls:     ['Recalls',           'Due recalls & no-show recovery'],
+  followups:     ['Follow Ups',           'Due followups & no-show recovery'],
   broadcast:   ['Campaigns',         'Health tips, offers, packages'],
   personalised:['Personalised',      'Birthday, anniversary, custom messages'],
   automations: ['Message Templates', 'Every outgoing WhatsApp message — full library'],
@@ -31,7 +31,7 @@ export default function App() {
   const [page, setPage]                 = useState<Page>('overview')
   const [status, setStatus]             = useState<BackendStatus>(getStatus())
   const [callbackCount, setCallbackCount] = useState(0)
-  const [recallCount, setRecallCount]     = useState(0)
+  const [followupCount, setFollowUpCount]     = useState(0)
 
   // Auth change listener (handles 401 auto-logout)
   useEffect(() => onAuthChange(() => {
@@ -45,13 +45,13 @@ export default function App() {
   // Badge counts — only when logged in
   const loadCounts = async () => {
     if (!isLoggedIn()) return
-    const [cbs, recalls, fups] = await Promise.all([
+    const [cbs, followups, fups] = await Promise.all([
       api.callbacks(),
-      api.recalls(),
+      api.followups(),
       api.followups(),
     ])
     setCallbackCount(cbs.length)
-    setRecallCount(recalls.length + fups.length)
+    setFollowUpCount(followups.length + fups.length)
   }
 
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function App() {
         current={page}
         onChange={setPage}
         callbackCount={callbackCount}
-        recallCount={recallCount}
+        followupCount={followupCount}
         username={username}
         onLogout={handleLogout}
       />
@@ -112,7 +112,7 @@ export default function App() {
           {page === 'overview'     && <OverviewPage />}
           {page === 'history'      && <HistoryPage />}
           {page === 'dialer'       && <DialerPage />}
-          {page === 'recalls'      && <RecallsPage />}
+          {page === 'followups'      && <FollowUpsPage />}
           {page === 'broadcast'    && <BroadcastPage />}
           {page === 'personalised' && <PersonalisedPage />}
           {page === 'automations'  && <AutomationsPage />}

@@ -5,12 +5,12 @@ interface Props {
   current: Page
   onChange: (p: Page) => void
   callbackCount: number
-  recallCount: number
+  followupCount: number
   username: string
   onLogout: () => void
 }
 
-export function Sidebar({ current, onChange, callbackCount, recallCount, username, onLogout }: Props) {
+export function Sidebar({ current, onChange, callbackCount, followupCount, username, onLogout }: Props) {
   const item = (page: Page, label: string, badge?: { count: number; color: 'red' | 'amber' }) => (
     <div
       className={`nav-item ${current === page ? 'active' : ''}`}
@@ -44,7 +44,7 @@ export function Sidebar({ current, onChange, callbackCount, recallCount, usernam
 
         <div className="nav-section">Engagement</div>
         {item('dialer', 'Dialer', { count: callbackCount, color: 'red' })}
-        {item('recalls', 'Recalls', { count: recallCount, color: 'amber' })}
+        {item('followups', 'Follow Ups', { count: followupCount, color: 'amber' })}
 
         <div className="nav-section">Broadcast</div>
         {item('broadcast', 'Campaigns')}
