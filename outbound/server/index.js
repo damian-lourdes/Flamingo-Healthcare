@@ -41,7 +41,8 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api',            dashboardRoutes);
-app.use('/dialer',         dialerRoutes);
+app.use('/dialer',         dialerRoutes);   // direct: POST /dialer/call
+app.use('/hooks/dialer',   dialerRoutes);   // Exotel webhook: GET /hooks/dialer/call
 app.use('/api/engagement', engagementRoutes);
 app.use('/api/broadcast',  broadcastRoutes);
 app.use('/webhooks',       webhookRoutes);  // legacy
