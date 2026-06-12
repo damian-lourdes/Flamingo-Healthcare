@@ -13,7 +13,9 @@ import type {
 } from '../types'
 
 // ── API base URL ─────────────────────────────────────────────────────────────
-const BASE = 'https://flamingo-healthcare-production.up.railway.app'
+// Reads VITE_API_URL from the build env (.env.production), falls back to the
+// known Railway API URL. Every request is prefixed with this in safeFetch.
+const BASE = import.meta.env.VITE_API_URL ?? 'https://flamingo-healthcare-production.up.railway.app'
 
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'flamingo_token'
@@ -62,7 +64,7 @@ async function safeFetch<T>(path: string, opts?: RequestInit, fallback?: T): Pro
     ...(opts?.headers as Record<string, string> ?? {}),
   }
   try {
-    const r = await fetch(path, { ...opts, headers })
+    const r = await fetch(`${BASE}${path}`, { ...opts, headers })
     // 401 → session expired or invalid → force logout
     if (r.status === 401 && path !== '/auth/login') {
       clearAuth()

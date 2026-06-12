@@ -10,9 +10,10 @@ import httpx
 
 from app.database import database, outbound_messages, patient_profiles, engagement_log, recall_schedule, follow_up_queue, callback_queue, broadcast_campaigns
 from app import models
+from app.config import settings
 import sqlalchemy
 
-OUTBOUND_URL = "http://localhost:3000"
+OUTBOUND_URL = settings.outbound_url
 
 router = APIRouter()
 

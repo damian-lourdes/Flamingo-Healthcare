@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     meta_access_token: str = ""
     meta_api_version: str = "v19.0"
 
+    # Outbound service (Node.js) — used for the /health check on the Overview page.
+    # On Railway this must point at the outbound service, NOT localhost.
+    # Use the private URL (http://<service>.railway.internal:8080) or the public URL.
+    outbound_url: str = "http://localhost:3000"
+
     # App
     environment: str = "development"
     debug: bool = True
