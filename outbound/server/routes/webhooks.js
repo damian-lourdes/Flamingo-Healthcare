@@ -185,46 +185,44 @@ router.post('/mocdoc/registration', async (req, res) => {
 router.post('/mocdoc/checkin', async (req, res) => {
   ack(res);
   try {
-    const d = req.body;
-
-    // ── Extract patient from nested object (MocDoc sends patient as object) ──
+    const d  = req.body;
     const pt = d.patient || {};
 
-    // Phone — prefer patient.mobile, fallback to top-level
-    const rawPhone = pt.mobile || d.mobile || d.patientmobile || d.phone;
-    const isdCode  = pt.isdcode || d.isdcode || '91';
-    const phone    = normalisePhone(rawPhone, isdCode);
+    const p = extractPatient(pt, d);
+    if (!p.phone) { console.warn('[webhook] checkin: no mobile'); return; }
 
-    if (!phone) {
-      console.warn('[webhook] checkin: no mobile number');
-      return;
-    }
+    // Visit-level fields
+    const doctor       = d.consultingdr_name || d.bookeddr_name || d.doctorname || 'the doctor';
+    const bookedDoctor = d.bookeddr_name     || null;
+    const specialty    = d.speciality  || d.specialty  || d.purpose || '';
+    const opno         = d.opno        || null;
+    const token        = d.token       || null;
+    const checkinKey   = d.checkinkey  || d.checkin_key || opno || null;
 
-    // Patient demographics
-    const firstName = pt.name   || d.patientname || d.name || '';
-    const lastName  = pt.lname  || '';
-    const name      = [firstName, lastName].filter(Boolean).join(' ') || 'Patient';
-    const phid      = pt.phid   || d.phid || null;
-    const dob       = parseDob(pt.dob || d.dob);
+    // Upsert full patient profile with all demographics
+    await db.upsertPatient({ ...p, specialty, doctor }).catch(() => {});
 
-    // Visit details
-    const doctor    = d.consultingdr_name || d.bookeddr_name || d.doctorname || 'the doctor';
-    const specialty = d.speciality || d.specialty || d.purpose || '';
-    const opno      = d.opno      || null;
-    const token     = d.token     || null;
-    const location  = d.entitylocation || null;
-    const checkinKey = d.checkinkey || d.checkin_key || opno || null;
+    // Log visit row
+    await db.logVisit({
+      phone:           p.phone,
+      phid:            p.phid,
+      opno,
+      token,
+      checkin_date:    d.date           || null,
+      checkin_time:    d.start          || null,
+      doctor,
+      booked_doctor:   bookedDoctor,
+      specialty,
+      nature_of_visit: d.natureofvisit  || null,
+      entity_location: d.entitylocation || null,
+      referred_by:     d.referred_by    || null,
+      created_by:      d.createdby_name || null,
+      visit_status:    'checkin',
+    });
 
-    // Upsert full patient profile — captures DOB for birthday automation
-    await db.upsertPatient({
-      phone, name, dob, specialty, doctor,
-      ref_id: phid,
-    }).catch(() => {});
+    await engagement.onConsultationStart({ phone: p.phone, name: p.name, doctor, specialty, checkinKey, token });
 
-    // Send check-in acknowledgement
-    await engagement.onConsultationStart({ phone, name, doctor, specialty, checkinKey, token });
-
-    console.log(`[webhook] check-in: ${name} (${phid}) OP#${opno} Token:${token} Dr:${doctor}`);
+    console.log(`[webhook] check-in: ${p.name} (${p.phid}) OP#${opno} Token:${token} Dr:${doctor}`);
   } catch (e) { console.error('[webhook] checkin error:', e.message); }
 });
 
@@ -238,24 +236,16 @@ router.post('/mocdoc/checkin-update', async (req, res) => {
     const d  = req.body;
     const pt = d.patient || {};
 
-    const rawPhone = pt.mobile || d.mobile || d.patientmobile || d.phone;
-    const isdCode  = pt.isdcode || d.isdcode || '91';
-    const phone    = normalisePhone(rawPhone, isdCode);
+    const p = extractPatient(pt, d);
+    if (!p.phone) return;
 
-    if (!phone) return;
-
-    const firstName = pt.name  || d.patientname || d.name || '';
-    const lastName  = pt.lname || '';
-    const name      = [firstName, lastName].filter(Boolean).join(' ') || null;
-    const phid      = pt.phid  || d.phid || null;
-    const dob       = parseDob(pt.dob || d.dob);
     const doctor    = d.consultingdr_name || d.bookeddr_name || d.doctorname || null;
     const specialty = d.speciality || d.specialty || d.purpose || null;
 
-    // Update patient profile with latest data — especially DOB if not yet captured
-    await db.upsertPatient({ phone, name, dob, specialty, doctor, ref_id: phid }).catch(() => {});
+    // Update patient profile with latest demographics
+    await db.upsertPatient({ ...p, specialty, doctor }).catch(() => {});
 
-    console.log(`[webhook] checkin-update: ${name} (${phid}) ${phone} Dr:${doctor}`);
+    console.log(`[webhook] checkin-update: ${p.name} (${p.phid}) ${p.phone} Dr:${doctor}`);
   } catch (e) { console.error('[webhook] checkin-update error:', e.message); }
 });
 
@@ -268,41 +258,48 @@ router.post('/mocdoc/checkout', async (req, res) => {
   try {
     const d  = req.body;
     const pt = d.patient || {};
+    const p  = extractPatient(pt, d);
 
-    const rawPhone = pt.mobile || d.mobile || d.patientmobile || d.phone;
-    const isdCode  = pt.isdcode || d.isdcode || '91';
-    const phone    = normalisePhone(rawPhone, isdCode);
+    if (!p.phone) return;
 
-    if (!phone) return;
-
-    const firstName  = pt.name  || d.patientname || d.name || '';
-    const lastName   = pt.lname || '';
-    const name       = [firstName, lastName].filter(Boolean).join(' ') || 'Patient';
-    const phid       = pt.phid  || d.phid || null;
-    const dob        = parseDob(pt.dob || d.dob);
-
-    // Use consulting doctor (actual) over booked doctor
-    const doctor     = d.consultingdr_name || d.bookeddr_name || d.doctorname || 'the doctor';
-    const specialty  = d.speciality || d.specialty || d.purpose || '';
-    const opno       = d.opno || null;
-    const checkoutDt = d.co_user_dt || null;  // YYYYMMDDHH:MM:SS — actual checkout time
+    // Visit-level fields
+    const doctor      = d.consultingdr_name || d.bookeddr_name || d.doctorname || 'the doctor';
+    const specialty   = d.speciality  || d.specialty  || d.purpose || '';
+    const opno        = d.opno        || null;
+    const checkoutDt  = d.co_user_dt  || null;
     const followUpDate = d.followupdate || d.follow_up_date || null;
-    const visitKey   = opno || d.visitkey || d.checkinkey || null;
+    const visitKey    = opno || d.visitkey || d.checkinkey || null;
 
     // Update patient profile with latest data
-    await db.upsertPatient({ phone, name, dob, specialty, doctor, ref_id: phid }).catch(() => {});
+    await db.upsertPatient({ ...p, specialty, doctor }).catch(() => {});
+
+    // Log visit row with checkout status
+    await db.logVisit({
+      phone:           p.phone,
+      phid:            p.phid,
+      opno,
+      checkout_dt:     checkoutDt,
+      doctor,
+      specialty,
+      nature_of_visit: d.natureofvisit  || null,
+      entity_location: d.entitylocation || null,
+      referred_by:     d.referred_by    || null,
+      created_by:      d.createdby_name || null,
+      follow_up_date:  followUpDate     || null,
+      visit_status:    'checkout',
+    });
 
     // Post-consultation thank you + review request
     await engagement.onConsultationComplete({
-      phone, name, doctor, specialty, followUpDate, visitKey,
+      phone: p.phone, name: p.name, doctor, specialty, followUpDate, visitKey,
     });
 
     // Schedule 30-day recall automatically on checkout
     if (specialty) {
-      await db.scheduleRecall({ phone, name, specialty, days: 30 }).catch(() => {});
+      await db.scheduleRecall({ phone: p.phone, name: p.name, specialty, days: 30 }).catch(() => {});
     }
 
-    console.log(`[webhook] checkout: ${name} (${phid}) OP#${opno} Dr:${doctor} at ${checkoutDt}`);
+    console.log(`[webhook] checkout: ${p.name} (${p.phid}) OP#${opno} Dr:${doctor} at ${checkoutDt}`);
   } catch (e) { console.error('[webhook] checkout error:', e.message); }
 });
 
@@ -578,6 +575,52 @@ router.post('/mocdoc', async (req, res) => {
   try { await sync.handleWebhook(event, data); }
   catch (e) { console.error('[mocdoc-webhook]', e.message); }
 });
+
+
+// ── Extract full patient demographics from MocDoc nested patient object ────────
+function extractPatient(pt, d) {
+  const rawPhone = pt.mobile || d.mobile || d.patientmobile || d.phone;
+  const isdcode  = (pt.isdcode || d.isdcode || '91').replace(/\D/g, '');
+  const phone    = normalisePhone(rawPhone, isdcode);
+  const altPhone = normalisePhone(pt.contactnumbers, pt.altisdcode || isdcode);
+
+  const addr = pt.address || {};
+  const guardian = pt.guardian || {};
+
+  return {
+    phone,
+    name:             [pt.name || d.patientname || d.name || '', pt.lname || ''].filter(Boolean).join(' ') || 'Patient',
+    lname:            pt.lname            || null,
+    title:            pt.title            || null,
+    phid:             pt.phid             || d.phid || null,
+    ext_phid:         pt.extphid          || null,
+    dob:              parseDob(pt.dob     || d.dob),
+    gender:           pt.gender           || null,
+    email:            pt.email            || null,
+    blood_group:      pt.bloodgroup       || null,
+    marital_status:   pt.maritalstatus    || null,
+    occupation:       pt.occupation       || null,
+    relationship:     pt.relationship     || null,
+    spouse_name:      pt.spousename       || null,
+    spouse_age:       pt.spouseage        || null,
+    alt_phone:        altPhone            || null,
+    isdcode,
+    religion:         pt.religion         || null,
+    id_proof:         pt.idproof          || null,
+    id_proof_details: pt.idproofdetails   || null,
+    family_id:        pt.familyid         || null,
+    address_street:   addr.street         || null,
+    address_area:     addr.area           || null,
+    address_landmark: addr.landmark       || null,
+    address_city:     addr.city           || null,
+    address_state:    addr.state          || null,
+    address_zip:      addr.zip            || null,
+    address_country:  addr.country        || null,
+    guardian_name:    guardian.name       || null,
+    guardian_phone:   normalisePhone(guardian.phone, guardian.isdcode || isdcode) || null,
+    guardian_address: guardian.address    || null,
+  };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function parseDob(dob) {

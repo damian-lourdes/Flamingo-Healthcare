@@ -176,6 +176,60 @@ async function setup() {
       ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 'sent',
       ADD COLUMN IF NOT EXISTS consent_recorded BOOLEAN DEFAULT FALSE;
 
+    -- Patient profiles: additional MocDoc registration fields
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lname            TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS title            TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS phid             TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS gender           TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS email            TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS blood_group      TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS marital_status   TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS occupation       TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS relationship     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS spouse_name      TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS spouse_age       TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS alt_phone        TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS isdcode          TEXT DEFAULT '91';
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS religion         TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS id_proof         TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS id_proof_details TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS family_id        TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS ext_phid         TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_street   TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_area     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_landmark TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_city     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_state    TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_zip      TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS address_country  TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_name    TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_phone   TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_address TEXT;
+
+    -- Visits table: one row per checkin/checkout event
+    CREATE TABLE IF NOT EXISTS visits (
+      id              SERIAL PRIMARY KEY,
+      phone           TEXT NOT NULL,
+      phid            TEXT,
+      opno            TEXT,
+      token           INTEGER,
+      checkin_date    TEXT,
+      checkin_time    TEXT,
+      checkout_dt     TEXT,
+      doctor          TEXT,
+      booked_doctor   TEXT,
+      specialty       TEXT,
+      nature_of_visit TEXT,
+      entity_location TEXT,
+      referred_by     TEXT,
+      created_by      TEXT,
+      follow_up_date  TEXT,
+      visit_status    TEXT DEFAULT 'checkin',
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_visits_phone ON visits(phone, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_visits_opno  ON visits(opno);
+
   `);
   console.log('[db] Schema ready');
 }
@@ -271,7 +325,7 @@ module.exports = {
   logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
   listState,
   logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
-  upsertPatient, getPatients, getBirthdaysToday,
+  upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
   getBroadcastLists, createBroadcastList, getBroadcastListMembers,
   logBroadcast, getBroadcastHistory,
   // Consent tracking (DPDP Act)
@@ -327,55 +381,133 @@ async function getPatientMessageHistory(phone) {
 
 // ── Patient profiles (for personalised messages) ──────────────────────────────
 async function upsertPatient({
-  phone, name, lname, title, phid, dob, gender, email,
-  blood_group, marital_status, occupation, relationship, spouse_name,
-  alt_phone, isdcode, specialty, doctor, branch,
+  phone, name, lname, title, phid, ext_phid, dob, gender, email,
+  blood_group, marital_status, occupation, relationship,
+  spouse_name, spouse_age, alt_phone, isdcode,
+  religion, id_proof, id_proof_details, family_id,
+  address_street, address_area, address_landmark,
+  address_city, address_state, address_zip, address_country,
+  guardian_name, guardian_phone, guardian_address,
+  specialty, doctor, branch,
 }) {
   await pool.query(`
     INSERT INTO patient_profiles(
-      phone, name, lname, title, phid, dob, gender, email,
-      blood_group, marital_status, occupation, relationship, spouse_name,
-      alt_phone, isdcode, specialty, doctor, branch, last_contact
-    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+      phone, name, lname, title, phid, ext_phid, dob, gender, email,
+      blood_group, marital_status, occupation, relationship,
+      spouse_name, spouse_age, alt_phone, isdcode,
+      religion, id_proof, id_proof_details, family_id,
+      address_street, address_area, address_landmark,
+      address_city, address_state, address_zip, address_country,
+      guardian_name, guardian_phone, guardian_address,
+      specialty, doctor, branch, last_contact
+    ) VALUES(
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,
+      $10,$11,$12,$13,
+      $14,$15,$16,$17,
+      $18,$19,$20,$21,
+      $22,$23,$24,
+      $25,$26,$27,$28,
+      $29,$30,$31,
+      $32,$33,$34,NOW()
+    )
     ON CONFLICT(phone) DO UPDATE SET
-      name           = COALESCE(EXCLUDED.name,           patient_profiles.name),
-      lname          = COALESCE(EXCLUDED.lname,          patient_profiles.lname),
-      title          = COALESCE(EXCLUDED.title,          patient_profiles.title),
-      phid           = COALESCE(EXCLUDED.phid,           patient_profiles.phid),
-      dob            = COALESCE(EXCLUDED.dob,            patient_profiles.dob),
-      gender         = COALESCE(EXCLUDED.gender,         patient_profiles.gender),
-      email          = COALESCE(EXCLUDED.email,          patient_profiles.email),
-      blood_group    = COALESCE(EXCLUDED.blood_group,    patient_profiles.blood_group),
-      marital_status = COALESCE(EXCLUDED.marital_status, patient_profiles.marital_status),
-      occupation     = COALESCE(EXCLUDED.occupation,     patient_profiles.occupation),
-      relationship   = COALESCE(EXCLUDED.relationship,   patient_profiles.relationship),
-      spouse_name    = COALESCE(EXCLUDED.spouse_name,    patient_profiles.spouse_name),
-      alt_phone      = COALESCE(EXCLUDED.alt_phone,      patient_profiles.alt_phone),
-      isdcode        = COALESCE(EXCLUDED.isdcode,        patient_profiles.isdcode),
-      specialty      = COALESCE(EXCLUDED.specialty,      patient_profiles.specialty),
-      doctor         = COALESCE(EXCLUDED.doctor,         patient_profiles.doctor),
-      last_contact   = NOW()
+      name             = COALESCE(EXCLUDED.name,             patient_profiles.name),
+      lname            = COALESCE(EXCLUDED.lname,            patient_profiles.lname),
+      title            = COALESCE(EXCLUDED.title,            patient_profiles.title),
+      phid             = COALESCE(EXCLUDED.phid,             patient_profiles.phid),
+      ext_phid         = COALESCE(EXCLUDED.ext_phid,         patient_profiles.ext_phid),
+      dob              = COALESCE(EXCLUDED.dob,              patient_profiles.dob),
+      gender           = COALESCE(EXCLUDED.gender,           patient_profiles.gender),
+      email            = COALESCE(EXCLUDED.email,            patient_profiles.email),
+      blood_group      = COALESCE(EXCLUDED.blood_group,      patient_profiles.blood_group),
+      marital_status   = COALESCE(EXCLUDED.marital_status,   patient_profiles.marital_status),
+      occupation       = COALESCE(EXCLUDED.occupation,       patient_profiles.occupation),
+      relationship     = COALESCE(EXCLUDED.relationship,     patient_profiles.relationship),
+      spouse_name      = COALESCE(EXCLUDED.spouse_name,      patient_profiles.spouse_name),
+      spouse_age       = COALESCE(EXCLUDED.spouse_age,       patient_profiles.spouse_age),
+      alt_phone        = COALESCE(EXCLUDED.alt_phone,        patient_profiles.alt_phone),
+      isdcode          = COALESCE(EXCLUDED.isdcode,          patient_profiles.isdcode),
+      religion         = COALESCE(EXCLUDED.religion,         patient_profiles.religion),
+      id_proof         = COALESCE(EXCLUDED.id_proof,         patient_profiles.id_proof),
+      id_proof_details = COALESCE(EXCLUDED.id_proof_details, patient_profiles.id_proof_details),
+      family_id        = COALESCE(EXCLUDED.family_id,        patient_profiles.family_id),
+      address_street   = COALESCE(EXCLUDED.address_street,   patient_profiles.address_street),
+      address_area     = COALESCE(EXCLUDED.address_area,     patient_profiles.address_area),
+      address_landmark = COALESCE(EXCLUDED.address_landmark, patient_profiles.address_landmark),
+      address_city     = COALESCE(EXCLUDED.address_city,     patient_profiles.address_city),
+      address_state    = COALESCE(EXCLUDED.address_state,    patient_profiles.address_state),
+      address_zip      = COALESCE(EXCLUDED.address_zip,      patient_profiles.address_zip),
+      address_country  = COALESCE(EXCLUDED.address_country,  patient_profiles.address_country),
+      guardian_name    = COALESCE(EXCLUDED.guardian_name,    patient_profiles.guardian_name),
+      guardian_phone   = COALESCE(EXCLUDED.guardian_phone,   patient_profiles.guardian_phone),
+      guardian_address = COALESCE(EXCLUDED.guardian_address, patient_profiles.guardian_address),
+      specialty        = COALESCE(EXCLUDED.specialty,        patient_profiles.specialty),
+      doctor           = COALESCE(EXCLUDED.doctor,           patient_profiles.doctor),
+      last_contact     = NOW()
   `, [
     phone,
-    name           || null,
-    lname          || null,
-    title          || null,
-    phid           || null,
-    dob            || null,
-    gender         || null,
-    email          || null,
-    blood_group    || null,
-    marital_status || null,
-    occupation     || null,
-    relationship   || null,
-    spouse_name    || null,
-    alt_phone      || null,
-    isdcode        || '91',
-    specialty      || null,
-    doctor         || null,
-    branch         || 'Ambattur',
+    name              || null,
+    lname             || null,
+    title             || null,
+    phid              || null,
+    ext_phid          || null,
+    dob               || null,
+    gender            || null,
+    email             || null,
+    blood_group       || null,
+    marital_status    || null,
+    occupation        || null,
+    relationship      || null,
+    spouse_name       || null,
+    spouse_age        || null,
+    alt_phone         || null,
+    isdcode           || '91',
+    religion          || null,
+    id_proof          || null,
+    id_proof_details  || null,
+    family_id         || null,
+    address_street    || null,
+    address_area      || null,
+    address_landmark  || null,
+    address_city      || null,
+    address_state     || null,
+    address_zip       || null,
+    address_country   || null,
+    guardian_name     || null,
+    guardian_phone    || null,
+    guardian_address  || null,
+    specialty         || null,
+    doctor            || null,
+    branch            || 'Ambattur',
   ]);
 }
+
+// ── Visits log (one row per checkin/checkout) ─────────────────────────────────
+async function logVisit({
+  phone, phid, opno, token, checkin_date, checkin_time,
+  checkout_dt, doctor, booked_doctor, specialty,
+  nature_of_visit, entity_location, referred_by, created_by,
+  follow_up_date, visit_status,
+}) {
+  await pool.query(`
+    INSERT INTO visits(
+      phone, phid, opno, token, checkin_date, checkin_time,
+      checkout_dt, doctor, booked_doctor, specialty,
+      nature_of_visit, entity_location, referred_by, created_by,
+      follow_up_date, visit_status
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+  `, [
+    phone, phid||null, opno||null, token||null,
+    checkin_date||null, checkin_time||null,
+    checkout_dt||null, doctor||null, booked_doctor||null, specialty||null,
+    nature_of_visit||null, entity_location||null,
+    referred_by||null, created_by||null,
+    follow_up_date||null, visit_status||'checkin',
+  ]).catch(() => {});
+}
+
+const getVisits = (phone) =>
+  q('SELECT * FROM visits WHERE phone=$1 ORDER BY created_at DESC LIMIT 50', [phone]);
 
 async function getPatients({ specialty, doctor, search } = {}) {
   let sql = 'SELECT * FROM patient_profiles';
