@@ -130,30 +130,46 @@ router.post('/mocdoc/registration', async (req, res) => {
     const d = req.body;
     console.log('[webhook] registration:', JSON.stringify(d));
 
-    const phone     = normalisePhone(d.mobile || d.phone);
-    const altPhone  = normalisePhone(d.contactnumbers);
-    const firstName = d.name  || '';
-    const lastName  = d.lname || '';
-    const name      = [firstName, lastName].filter(Boolean).join(' ') || 'Patient';
-    const phid      = d.phid  || d.extphid || null;
-    const dob       = parseDob(d.dob);
-    const email     = d.email || null;
-    const gender    = d.gender || null;
-    const bloodGroup = d.bloodgroup || null;
-    const title     = d.title || null;
+    const phone          = normalisePhone(d.mobile || d.phone, d.isdcode || '91');
+    const altPhone       = normalisePhone(d.contactnumbers, d.altisdcode || d.isdcode || '91');
+    const firstName      = d.name          || '';
+    const lastName       = d.lname         || '';
+    const name           = [firstName, lastName].filter(Boolean).join(' ') || 'Patient';
+    const phid           = d.phid          || d.extphid || null;
+    const dob            = parseDob(d.dob);
+    const title          = d.title         || null;
+    const email          = d.email         || null;
+    const gender         = d.gender        || null;
+    const blood_group    = d.bloodgroup    || null;
+    const marital_status = d.maritalstatus || null;
+    const occupation     = d.occupation    || null;
+    const relationship   = d.relationship  || null;
+    const spouse_name    = d.spousename    || null;
+    const isdcode        = (d.isdcode      || '91').replace(/\D/g, '');
 
     if (!phone) {
       console.warn('[webhook] registration: no mobile number in payload');
       return;
     }
 
-    // Upsert patient with full demographic data
+    // Upsert patient with full demographic data from MocDoc registration payload
     // DOB is saved so birthday automation fires automatically each year
     await db.upsertPatient({
       phone,
       name,
+      lname:          lastName   || null,
+      title,
+      phid,
       dob,
-      ref_id: phid,
+      gender,
+      email,
+      blood_group,
+      marital_status,
+      occupation,
+      relationship,
+      spouse_name,
+      alt_phone:      altPhone   || null,
+      isdcode,
     }).catch(() => {});
 
     // Send welcome / enquiry message

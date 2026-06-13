@@ -77,17 +77,43 @@ async function setup() {
 
     -- Patient profiles (for personalised messages)
     CREATE TABLE IF NOT EXISTS patient_profiles (
-      id           SERIAL PRIMARY KEY,
-      phone        TEXT UNIQUE NOT NULL,
-      name         TEXT,
-      dob          DATE,
-      specialty    TEXT,
-      doctor       TEXT,
-      branch       TEXT DEFAULT 'Ambattur',
-      opt_in       BOOLEAN DEFAULT TRUE,
-      last_contact TIMESTAMPTZ,
-      created_at   TIMESTAMPTZ DEFAULT NOW()
+      id             SERIAL PRIMARY KEY,
+      phone          TEXT UNIQUE NOT NULL,
+      name           TEXT,
+      lname          TEXT,
+      title          TEXT,
+      phid           TEXT,
+      dob            DATE,
+      gender         TEXT,
+      email          TEXT,
+      blood_group    TEXT,
+      marital_status TEXT,
+      occupation     TEXT,
+      relationship   TEXT,
+      spouse_name    TEXT,
+      alt_phone      TEXT,
+      isdcode        TEXT DEFAULT '91',
+      specialty      TEXT,
+      doctor         TEXT,
+      branch         TEXT DEFAULT 'Ambattur',
+      opt_in         BOOLEAN DEFAULT TRUE,
+      last_contact   TIMESTAMPTZ,
+      created_at     TIMESTAMPTZ DEFAULT NOW()
     );
+
+    -- Migrate existing patient_profiles if columns missing (safe on re-run)
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lname          TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS title          TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS phid           TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS gender         TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS email          TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS blood_group    TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS marital_status TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS occupation     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS relationship   TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS spouse_name    TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS alt_phone      TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS isdcode        TEXT DEFAULT '91';
 
     -- Broadcast lists (saved segments)
     CREATE TABLE IF NOT EXISTS broadcast_lists (
@@ -300,25 +326,55 @@ async function getPatientMessageHistory(phone) {
 }
 
 // ── Patient profiles (for personalised messages) ──────────────────────────────
-async function upsertPatient({ phone, name, dob, specialty, doctor, branch, ref_id }) {
-  // ref_id = MocDoc phid (e.g. BH22470_001) — stored in notes field for reference
+async function upsertPatient({
+  phone, name, lname, title, phid, dob, gender, email,
+  blood_group, marital_status, occupation, relationship, spouse_name,
+  alt_phone, isdcode, specialty, doctor, branch,
+}) {
   await pool.query(`
-    INSERT INTO patient_profiles(phone, name, dob, specialty, doctor, branch, last_contact)
-    VALUES($1,$2,$3,$4,$5,$6,NOW())
+    INSERT INTO patient_profiles(
+      phone, name, lname, title, phid, dob, gender, email,
+      blood_group, marital_status, occupation, relationship, spouse_name,
+      alt_phone, isdcode, specialty, doctor, branch, last_contact
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
     ON CONFLICT(phone) DO UPDATE SET
-      name=COALESCE(EXCLUDED.name, patient_profiles.name),
-      dob=COALESCE(EXCLUDED.dob, patient_profiles.dob),
-      specialty=COALESCE(EXCLUDED.specialty, patient_profiles.specialty),
-      doctor=COALESCE(EXCLUDED.doctor, patient_profiles.doctor),
-      last_contact=NOW()
-  `, [phone, name||null, dob||null, specialty||null, doctor||null, branch||'Ambattur']);
-  if (ref_id) {
-    // Log the MocDoc patient ID to engagement_log for traceability
-    await pool.query(
-      `INSERT INTO engagement_log(phone, trigger_type, ref_id) VALUES($1,'registration',$2) ON CONFLICT DO NOTHING`,
-      [phone, ref_id]
-    ).catch(() => {});
-  }
+      name           = COALESCE(EXCLUDED.name,           patient_profiles.name),
+      lname          = COALESCE(EXCLUDED.lname,          patient_profiles.lname),
+      title          = COALESCE(EXCLUDED.title,          patient_profiles.title),
+      phid           = COALESCE(EXCLUDED.phid,           patient_profiles.phid),
+      dob            = COALESCE(EXCLUDED.dob,            patient_profiles.dob),
+      gender         = COALESCE(EXCLUDED.gender,         patient_profiles.gender),
+      email          = COALESCE(EXCLUDED.email,          patient_profiles.email),
+      blood_group    = COALESCE(EXCLUDED.blood_group,    patient_profiles.blood_group),
+      marital_status = COALESCE(EXCLUDED.marital_status, patient_profiles.marital_status),
+      occupation     = COALESCE(EXCLUDED.occupation,     patient_profiles.occupation),
+      relationship   = COALESCE(EXCLUDED.relationship,   patient_profiles.relationship),
+      spouse_name    = COALESCE(EXCLUDED.spouse_name,    patient_profiles.spouse_name),
+      alt_phone      = COALESCE(EXCLUDED.alt_phone,      patient_profiles.alt_phone),
+      isdcode        = COALESCE(EXCLUDED.isdcode,        patient_profiles.isdcode),
+      specialty      = COALESCE(EXCLUDED.specialty,      patient_profiles.specialty),
+      doctor         = COALESCE(EXCLUDED.doctor,         patient_profiles.doctor),
+      last_contact   = NOW()
+  `, [
+    phone,
+    name           || null,
+    lname          || null,
+    title          || null,
+    phid           || null,
+    dob            || null,
+    gender         || null,
+    email          || null,
+    blood_group    || null,
+    marital_status || null,
+    occupation     || null,
+    relationship   || null,
+    spouse_name    || null,
+    alt_phone      || null,
+    isdcode        || '91',
+    specialty      || null,
+    doctor         || null,
+    branch         || 'Ambattur',
+  ]);
 }
 
 async function getPatients({ specialty, doctor, search } = {}) {
