@@ -239,13 +239,34 @@ router.post('/mocdoc/checkin-update', async (req, res) => {
     const p = extractPatient(pt, d);
     if (!p.phone) return;
 
-    const doctor    = d.consultingdr_name || d.bookeddr_name || d.doctorname || null;
-    const specialty = d.speciality || d.specialty || d.purpose || null;
+    const doctor       = d.consultingdr_name || d.bookeddr_name || d.doctorname || null;
+    const bookedDoctor = d.bookeddr_name     || null;
+    const specialty    = d.speciality || d.specialty || d.purpose || null;
+    const opno         = d.opno  || null;
+    const token        = d.token || null;
 
     // Update patient profile with latest demographics
     await db.upsertPatient({ ...p, specialty, doctor }).catch(() => {});
 
-    console.log(`[webhook] checkin-update: ${p.name} (${p.phid}) ${p.phone} Dr:${doctor}`);
+    // Log the updated check-in details (e.g. referred_by changed after the fact)
+    await db.logVisit({
+      phone:           p.phone,
+      phid:            p.phid,
+      opno,
+      token,
+      checkin_date:    d.date           || null,
+      checkin_time:    d.start          || null,
+      doctor,
+      booked_doctor:   bookedDoctor,
+      specialty,
+      nature_of_visit: d.natureofvisit  || null,
+      entity_location: d.entitylocation || null,
+      referred_by:     d.referred_by    || null,
+      created_by:      d.createdby_name || null,
+      visit_status:    'checkin-update',
+    });
+
+    console.log(`[webhook] checkin-update: ${p.name} (${p.phid}) OP#${opno} Dr:${doctor} Referred:${d.referred_by||'-'}`);
   } catch (e) { console.error('[webhook] checkin-update error:', e.message); }
 });
 
