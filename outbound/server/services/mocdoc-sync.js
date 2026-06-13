@@ -18,13 +18,14 @@ const db         = require('./db');
 // In-memory dedup — prevents re-processing same record in same session
 // On restart the DB engagement_log handles cross-session dedup
 const seen = {
-  visits:     new Set(),
-  patients:   new Set(),
-  admissions: new Set(),
-  discharges: new Set(),
-  labOrders:  new Set(),
-  labResults: new Set(),
-  bills:      new Set(),
+  visits:        new Set(),
+  patients:      new Set(),
+  admissions:    new Set(),
+  discharges:    new Set(),
+  labOrders:     new Set(),
+  labResults:    new Set(),
+  bills:         new Set(),
+  roomTransfers: new Set(),
 };
 
 // ── Phone normalisation ───────────────────────────────────────────────────────
@@ -218,6 +219,38 @@ async function syncLabResults(date) {
   }
 }
 
+// ── 7. IP ROOM / WARD TRANSFERS — notify attender of a ward change ────────────
+async function syncRoomTransfers() {
+  // getIPRoomTransfers() defaults to today in YYYYMMDD (POST /api/get/transferroom).
+  const data      = await mocdoc.getIPRoomTransfers();
+  const transfers = data?.transferroomlist || data?.transfers || data?.data || [];
+  if (!transfers.length) return;
+
+  for (const t of transfers) {
+    // Some response field names sit behind "View Full Parameters" in the MocDoc
+    // docs — read defensively with aliases and tighten once confirmed.
+    const id       = String(t.roomallocationkey || t.transfer_id || t.id || '');
+    const phone    = normalisePhone(t.mobile || t.patient_mobile || t.mobileno);
+    const attender = normalisePhone(t.attender_mobile || t.attender_phone || t.relative_mobile);
+    const name     = t.patient_name || t.name || 'Patient';
+    const fromWard = t.from_room || t.from_ward || t.old_ward || '';
+    const toWard   = t.to_room   || t.new_ward  || t.room || t.ward || '';
+
+    if (!id || seen.roomTransfers.has(id)) continue;
+    seen.roomTransfers.add(id);
+
+    const targetPhone = attender || phone;
+    if (targetPhone) {
+      await engagement.onRoomTransfer({
+        attenderPhone: targetPhone,
+        patientName:   name,
+        fromWard, toWard,
+        transferId:    id,
+      });
+    }
+  }
+}
+
 // ── 7. OP BILLS — post-consultation trigger (bill = visit complete) ───────────
 async function syncOPBills(date) {
   const data  = await mocdoc.getBills(date);
@@ -263,6 +296,7 @@ async function sync() {
     ['IP discharges', () => syncIPDischarges(date)],  // No webhook available
     ['Lab orders',    () => syncLabOrders(date)],     // No webhook available
     ['Lab results',   () => syncLabResults(date)],    // No webhook available
+    ['Room transfers', () => syncRoomTransfers()],    // No webhook — pull /api/get/transferroom
     // OP visits & bills now covered by Check In/Out + OP Bill webhooks
     // ['OP visits',  () => syncOPVisits(date)],      // Replaced by webhooks
     // ['OP bills',   () => syncOPBills(date)],       // Replaced by webhooks

@@ -67,6 +67,12 @@ function toMocDocDate(jsDate) {
   return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 }
 
+// MocDoc's pull APIs expect date params as YYYYMMDD (per /api/docs).
+function todayYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+}
+
 // ── Master Data ───────────────────────────────────────────────────────────────
 
 /** GET /api/locationlist/{EntityKey} */
@@ -207,10 +213,13 @@ const getIPDischarges = (date) =>
   get(`/api/get/ipdischarges/${E()}/${L()}/${date || today()}`);
 
 /**
- * GET /api/get/iproomtransfers/{EntityKey}/{Location}/{Date}
+ * POST /api/get/transferroom/{EntityKey}
+ * Body: entitylocation, date (YYYYMMDD). Returns { transferroomlist: [...] }.
+ * Corrected from the earlier GET /api/get/iproomtransfers stub, which is not
+ * a real MocDoc endpoint (the documented one is POST /api/get/transferroom).
  */
 const getIPRoomTransfers = (date) =>
-  get(`/api/get/iproomtransfers/${E()}/${L()}/${date || today()}`);
+  post(`/api/get/transferroom/${E()}`, { entitylocation: L(), date: date || todayYmd() });
 
 // ── Laboratory ────────────────────────────────────────────────────────────────
 

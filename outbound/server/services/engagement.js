@@ -43,6 +43,22 @@ async function onEnquiry({ phone, name }) {
   ), 6);
 }
 
+// Best-effort parse of a MocDoc appointment datetime into a JS Date, used to
+// schedule the same-day reminder. Handles ISO, "YYYYMMDD HH:mm",
+// "YYYY-MM-DD HH:mm", and "DD-MM-YYYY HH:mm". Adjust if MocDoc's actual
+// appointment datetime format differs from these.
+function parseApptTime(s) {
+  if (!s) return null;
+  const str = String(s).trim();
+  const iso = new Date(str);
+  if (!isNaN(iso)) return iso;
+  let m = str.match(/^(\d{4})(\d{2})(\d{2})[ T]?(\d{2}):(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  m = str.match(/^(\d{2})-(\d{2})-(\d{4})[ T]?(\d{2}):(\d{2})/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+  return null;
+}
+
 // 2. Appointment booked — confirmation
 async function onAppointmentBooked({ phone, name, doctor, specialty, datetime, apptKey, notes }) {
   const notesLine = notes ? `\n📝 Notes: ${notes}` : '';
@@ -57,6 +73,23 @@ async function onAppointmentBooked({ phone, name, doctor, specialty, datetime, a
     `\n📋 Please carry:\n• Photo ID\n• Previous reports / prescriptions\n• Insurance card (if any)\n\n` +
     `To reschedule or cancel, call: ${PHONE}`;
   await send(phone, 'appt_booked', () => wa.sendText(phone, msg), 1, apptKey, name, msg);
+
+  // Schedule the same-day "2 hours before" reminder off the appointment time.
+  // In-process timer: it's lost if the service restarts, which is fine for a
+  // same-day reminder. The durable long-term home is a periodic job in
+  // scheduler.js that scans today's appointments; this covers the common case.
+  try {
+    const apptTime = parseApptTime(datetime);
+    if (apptTime) {
+      const delay = apptTime.getTime() - 2 * 60 * 60 * 1000 - Date.now();
+      // Only schedule if the reminder is in the future and within ~26h (today).
+      if (delay > 0 && delay < 26 * 60 * 60 * 1000) {
+        setTimeout(() => {
+          onSameDayReminder({ phone, name, doctor, datetime }).catch(() => {});
+        }, delay);
+      }
+    }
+  } catch { /* unparseable datetime — confirmation already sent, skip reminder */ }
 }
 
 // 3. Same-day reminder (2 hours before)
@@ -124,6 +157,20 @@ async function onIPDay2({ attenderPhone, patientName, admissionId }) {
     `1️⃣ Excellent\n2️⃣ Good\n3️⃣ Needs improvement\n\n` +
     `Reply 1, 2, or 3 — your feedback helps us improve.`
   ), 999, admissionId);
+}
+
+// IP room / ward transfer — notify the attender of a move
+async function onRoomTransfer({ attenderPhone, patientName, fromWard, toWard, transferId }) {
+  if (!attenderPhone) return;
+  const fromLine = fromWard ? `From: ${fromWard}\n` : '';
+  await send(attenderPhone, 'ip_room_transfer', () => wa.sendText(attenderPhone,
+    `Update on ${patientName || 'your patient'}'s stay at ${H} 🏥\n\n` +
+    `🛏️ Room/ward change\n` +
+    fromLine +
+    `To: ${toWard || 'a new ward'}\n\n` +
+    `🕐 Visiting hours: 9–12 AM and 4–7 PM\n` +
+    `📞 Helpdesk (24/7): ${PHONE}`
+  ), 999, transferId, patientName);
 }
 
 // 8. At discharge
@@ -419,4 +466,5 @@ module.exports = {
   onBillCancelled,
   onAppointmentRescheduled,
   onAppointmentCancelled,
+  onRoomTransfer,
 };
