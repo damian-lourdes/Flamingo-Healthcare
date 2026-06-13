@@ -352,15 +352,24 @@ router.post('/mocdoc/op-bill', async (req, res) => {
     const doctor  = d.consultant  || d.consultingdr_name || d.doctorname || 'the doctor';
 
     // Bill details
-    const billNo      = d['bill no'] || d.billno || d.bill_no || d.billnumber || '';
-    const billDate    = d.billdate   || d.saved_at || null;
-    const amountPay   = d.amountpayable  || d.totalamount || d.amount || '';
-    const amountRec   = d.amountreceived || '';
-    const paymentType = d.paymenttype || '';
-    const discount    = d.discountamount || 0;
-    const consultant  = d.consultant || doctor;
-    const billKey     = d.billkey || billNo || null;
-    const location    = d.location || '';
+    const billNo       = d['bill no'] || d.billno || d.bill_no || d.billnumber || '';
+    const billDate     = d.billdate   || d.saved_at || null;
+    const amountPay    = d.amountpayable  || d.totalamount || d.amount || '';
+    const amountRec    = d.amountreceived || '';
+    const paymentType  = d.paymenttype || '';
+    const discount     = d.discountamount || 0;
+    const discountPct  = d.discountpercentage || null;
+    const totalTax     = d.totaltax || null;
+    const consultant   = d.consultant || doctor;
+    const billKey      = d.billkey || billNo || null;
+    const location     = d.location || '';
+    const savedBy      = d.saved_by || null;
+    const savedAt      = d.saved_at || null;
+    const natureOfVisit = d.natureofvisit || null;
+    const chiefComplaint = d['chief complaint'] || d.chief_complaint || null;
+    const referredBy   = d.referredby || d.referred_by || null;
+    const unregisteredDr = d['unregistered Dr'] || d.unregistered_dr || null;
+    const creditProvider = d['credit provider'] || d.credit_provider || null;
 
     // Build bill summary from items array
     const items = d.billitems || {};
@@ -369,8 +378,21 @@ router.post('/mocdoc/op-bill', async (req, res) => {
       .map(i => `• ${i.label}${i.qty > 1 ? ` ×${i.qty}` : ''} — ₹${i.price}`)
       .slice(0, 5); // max 5 items in WhatsApp
 
+    // Log bill for audit/reporting regardless of phone availability
+    await db.logBill({
+      bill_no: billNo, bill_date: billDate, phone: phone || null, patient_name: name,
+      consultant, saved_by: savedBy, saved_at: savedAt,
+      payment_type: paymentType, nature_of_visit: natureOfVisit,
+      chief_complaint: chiefComplaint, referred_by: referredBy,
+      unregistered_dr: unregisteredDr, credit_provider: creditProvider,
+      discount_amount: discount, discount_percentage: discountPct,
+      amount_received: amountRec, amount_payable: amountPay,
+      total_tax: totalTax, location, items,
+      event_type: 'created',
+    });
+
     if (!phone) {
-      // No phone in payload — log and skip WhatsApp
+      // No phone in payload — bill logged, but skip WhatsApp
       console.log(`[webhook] op-bill: no phone — bill ${billNo} ₹${amountPay} by ${consultant}`);
       return;
     }
@@ -399,10 +421,35 @@ router.post('/mocdoc/op-bill-update', async (req, res) => {
     const amountPay  = d.amountpayable  || '';
     const amountRec  = d.amountreceived || '';
     const consultant = d.consultant || '';
+    const billDate     = d.billdate   || updatedAt || null;
+    const paymentType  = d.paymenttype || '';
+    const discount     = d.discountamount || 0;
+    const discountPct  = d.discountpercentage || null;
+    const totalTax     = d.totaltax || null;
+    const location     = d.location || '';
+    const natureOfVisit = d.natureofvisit || null;
+    const chiefComplaint = d['chief complaint'] || d.chief_complaint || null;
+    const referredBy   = d.referredby || d.referred_by || null;
+    const unregisteredDr = d['unregistered Dr'] || d.unregistered_dr || null;
+    const creditProvider = d['credit provider'] || d.credit_provider || null;
+    const phone = normalisePhone(d.mobile || d.patientmobile || d.phone) || null;
+    const name  = d.patientname || d.patient_name || d.name || null;
 
     // Count bill items
     const items      = d.billitems || {};
     const itemCount  = Object.values(items).filter(i => i && i.label).length;
+
+    await db.logBill({
+      bill_no: billNo, bill_date: billDate, phone, patient_name: name,
+      consultant, saved_by: d.saved_by||null, saved_at: d.saved_at||null,
+      payment_type: paymentType, nature_of_visit: natureOfVisit,
+      chief_complaint: chiefComplaint, referred_by: referredBy,
+      unregistered_dr: unregisteredDr, credit_provider: creditProvider,
+      discount_amount: discount, discount_percentage: discountPct,
+      amount_received: amountRec, amount_payable: amountPay,
+      total_tax: totalTax, location, items,
+      event_type: 'updated', event_by: updatedBy,
+    });
 
     console.log(`[webhook] op-bill-update: bill ${billNo} ₹${amountPay} by ${updatedBy} at ${updatedAt} (${itemCount} items, consultant: ${consultant})`);
     // No WhatsApp sent — bill edits are internal operations
@@ -426,6 +473,16 @@ router.post('/mocdoc/op-bill-cancel', async (req, res) => {
     const amountRec    = d.amountreceived    || '';
     const consultant   = d.consultant        || '';
     const billDate     = d.billdate          || d.saved_at || '';
+    const paymentType  = d.paymenttype || '';
+    const discount     = d.discountamount || 0;
+    const discountPct  = d.discountpercentage || null;
+    const totalTax     = d.totaltax || null;
+    const location     = d.location || '';
+    const natureOfVisit = d.natureofvisit || null;
+    const chiefComplaint = d['chief complaint'] || d.chief_complaint || null;
+    const referredBy   = d.referredby || d.referred_by || null;
+    const unregisteredDr = d['unregistered Dr'] || d.unregistered_dr || null;
+    const creditProvider = d['credit provider'] || d.credit_provider || null;
 
     // Count bill items for logging
     const items     = d.billitems || {};
@@ -434,11 +491,23 @@ router.post('/mocdoc/op-bill-cancel', async (req, res) => {
       .map(i => i.label)
       .join(', ');
 
-    console.log(`[webhook] op-bill-cancel: bill ${billNo} ₹${amountPay} by ${cancelledBy}${reason ? ' reason: '+reason : ''} (${itemNames})`);
-
     // Phone not in payload — attempt from any fallback field
-    const phone = normalisePhone(d.mobile || d.patientmobile || d.phone);
+    const phone = normalisePhone(d.mobile || d.patientmobile || d.phone) || null;
     const name  = d.patientname || d.patient_name || d.name || 'Patient';
+
+    await db.logBill({
+      bill_no: billNo, bill_date: billDate, phone, patient_name: name,
+      consultant, saved_by: d.saved_by||null, saved_at: d.saved_at||null,
+      payment_type: paymentType, nature_of_visit: natureOfVisit,
+      chief_complaint: chiefComplaint, referred_by: referredBy,
+      unregistered_dr: unregisteredDr, credit_provider: creditProvider,
+      discount_amount: discount, discount_percentage: discountPct,
+      amount_received: amountRec, amount_payable: amountPay,
+      total_tax: totalTax, location, items,
+      event_type: 'cancelled', event_by: cancelledBy, event_reason: reason,
+    });
+
+    console.log(`[webhook] op-bill-cancel: bill ${billNo} ₹${amountPay} by ${cancelledBy}${reason ? ' reason: '+reason : ''} (${itemNames})`);
 
     if (phone) {
       await engagement.onBillCancelled({ phone, name, billNo, reason, amountPay, cancelledBy });

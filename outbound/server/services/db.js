@@ -206,9 +206,6 @@ async function setup() {
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_phone   TEXT;
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_address TEXT;
 
-    -- Visits: who performed checkout
-    ALTER TABLE visits ADD COLUMN IF NOT EXISTS checked_out_by TEXT;
-
     -- Visits table: one row per checkin/checkout event
     CREATE TABLE IF NOT EXISTS visits (
       id              SERIAL PRIMARY KEY,
@@ -232,6 +229,40 @@ async function setup() {
     );
     CREATE INDEX IF NOT EXISTS idx_visits_phone ON visits(phone, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_visits_opno  ON visits(opno);
+
+    -- Visits: who performed checkout
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS checked_out_by TEXT;
+
+    -- OP Bills: created / updated / cancelled events from MocDoc
+    CREATE TABLE IF NOT EXISTS bills (
+      id                  SERIAL PRIMARY KEY,
+      bill_no             TEXT,
+      bill_date           TEXT,
+      phone               TEXT,
+      patient_name        TEXT,
+      consultant          TEXT,
+      saved_by            TEXT,
+      saved_at            TEXT,
+      payment_type        TEXT,
+      nature_of_visit     TEXT,
+      chief_complaint     TEXT,
+      referred_by         TEXT,
+      unregistered_dr     TEXT,
+      credit_provider     TEXT,
+      discount_amount     NUMERIC,
+      discount_percentage NUMERIC,
+      amount_received     NUMERIC,
+      amount_payable      NUMERIC,
+      total_tax           NUMERIC,
+      location            TEXT,
+      items               JSONB,
+      event_type          TEXT DEFAULT 'created',  -- created | updated | cancelled
+      event_by            TEXT,
+      event_reason        TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_bills_no    ON bills(bill_no);
+    CREATE INDEX IF NOT EXISTS idx_bills_phone ON bills(phone, created_at DESC);
 
   `);
   console.log('[db] Schema ready');
@@ -329,6 +360,7 @@ module.exports = {
   listState,
   logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
   upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
+  logBill, getBills, getRecentBills,
   getBroadcastLists, createBroadcastList, getBroadcastListMembers,
   logBroadcast, getBroadcastHistory,
   // Consent tracking (DPDP Act)
@@ -511,6 +543,40 @@ async function logVisit({
 
 const getVisits = (phone) =>
   q('SELECT * FROM visits WHERE phone=$1 ORDER BY created_at DESC LIMIT 50', [phone]);
+
+// ── Bills log (OP bill created / updated / cancelled) ─────────────────────────
+async function logBill({
+  bill_no, bill_date, phone, patient_name, consultant, saved_by, saved_at,
+  payment_type, nature_of_visit, chief_complaint, referred_by, unregistered_dr,
+  credit_provider, discount_amount, discount_percentage,
+  amount_received, amount_payable, total_tax, location, items,
+  event_type, event_by, event_reason,
+}) {
+  await pool.query(`
+    INSERT INTO bills(
+      bill_no, bill_date, phone, patient_name, consultant, saved_by, saved_at,
+      payment_type, nature_of_visit, chief_complaint, referred_by, unregistered_dr,
+      credit_provider, discount_amount, discount_percentage,
+      amount_received, amount_payable, total_tax, location, items,
+      event_type, event_by, event_reason
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+  `, [
+    bill_no||null, bill_date||null, phone||null, patient_name||null,
+    consultant||null, saved_by||null, saved_at||null,
+    payment_type||null, nature_of_visit||null, chief_complaint||null,
+    referred_by||null, unregistered_dr||null, credit_provider||null,
+    discount_amount||null, discount_percentage||null,
+    amount_received||null, amount_payable||null, total_tax||null,
+    location||null, items ? JSON.stringify(items) : null,
+    event_type||'created', event_by||null, event_reason||null,
+  ]).catch(() => {});
+}
+
+const getBills = (billNo) =>
+  q('SELECT * FROM bills WHERE bill_no=$1 ORDER BY created_at DESC', [billNo]);
+
+const getRecentBills = (limit=200) =>
+  q('SELECT * FROM bills ORDER BY created_at DESC LIMIT $1', [limit]);
 
 async function getPatients({ specialty, doctor, search } = {}) {
   let sql = 'SELECT * FROM patient_profiles';
