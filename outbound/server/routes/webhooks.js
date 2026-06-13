@@ -285,9 +285,12 @@ router.post('/mocdoc/checkout', async (req, res) => {
 
     // Visit-level fields
     const doctor      = d.consultingdr_name || d.bookeddr_name || d.doctorname || 'the doctor';
+    const bookedDoctor = d.bookeddr_name    || null;
     const specialty   = d.speciality  || d.specialty  || d.purpose || '';
     const opno        = d.opno        || null;
+    const token       = d.token       || null;
     const checkoutDt  = d.co_user_dt  || null;
+    const checkedOutBy = d.co_user_name || null;
     const followUpDate = d.followupdate || d.follow_up_date || null;
     const visitKey    = opno || d.visitkey || d.checkinkey || null;
 
@@ -299,8 +302,13 @@ router.post('/mocdoc/checkout', async (req, res) => {
       phone:           p.phone,
       phid:            p.phid,
       opno,
+      token,
+      checkin_date:    d.date           || null,
+      checkin_time:    d.start          || null,
       checkout_dt:     checkoutDt,
+      checked_out_by:  checkedOutBy,
       doctor,
+      booked_doctor:   bookedDoctor,
       specialty,
       nature_of_visit: d.natureofvisit  || null,
       entity_location: d.entitylocation || null,

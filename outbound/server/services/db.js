@@ -206,6 +206,9 @@ async function setup() {
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_phone   TEXT;
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS guardian_address TEXT;
 
+    -- Visits: who performed checkout
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS checked_out_by TEXT;
+
     -- Visits table: one row per checkin/checkout event
     CREATE TABLE IF NOT EXISTS visits (
       id              SERIAL PRIMARY KEY,
@@ -485,21 +488,21 @@ async function upsertPatient({
 // ── Visits log (one row per checkin/checkout) ─────────────────────────────────
 async function logVisit({
   phone, phid, opno, token, checkin_date, checkin_time,
-  checkout_dt, doctor, booked_doctor, specialty,
+  checkout_dt, checked_out_by, doctor, booked_doctor, specialty,
   nature_of_visit, entity_location, referred_by, created_by,
   follow_up_date, visit_status,
 }) {
   await pool.query(`
     INSERT INTO visits(
       phone, phid, opno, token, checkin_date, checkin_time,
-      checkout_dt, doctor, booked_doctor, specialty,
+      checkout_dt, checked_out_by, doctor, booked_doctor, specialty,
       nature_of_visit, entity_location, referred_by, created_by,
       follow_up_date, visit_status
-    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
   `, [
     phone, phid||null, opno||null, token||null,
     checkin_date||null, checkin_time||null,
-    checkout_dt||null, doctor||null, booked_doctor||null, specialty||null,
+    checkout_dt||null, checked_out_by||null, doctor||null, booked_doctor||null, specialty||null,
     nature_of_visit||null, entity_location||null,
     referred_by||null, created_by||null,
     follow_up_date||null, visit_status||'checkin',
