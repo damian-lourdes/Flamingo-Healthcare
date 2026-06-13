@@ -351,27 +351,6 @@ async function listState() {
 
 setup().catch(err => { console.error('[db] setup failed:', err.message); process.exit(1); });
 
-module.exports = {
-  pool,  // exported for direct query access in whatsapp.js
-  alreadySent, logSent,
-  scheduleRecall, getDueRecalls, markRecallSent,
-  addNoShow, getPendingNoShows, markNoShowRecovered,
-  logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
-  listState,
-  logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
-  upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
-  logBill, getBills, getRecentBills,
-  getBroadcastLists, createBroadcastList, getBroadcastListMembers,
-  logBroadcast, getBroadcastHistory,
-  // Consent tracking (DPDP Act)
-  recordConsent, hasConsent,
-  // Meta delivery status tracking
-  updateDeliveryStatus, getDeliveryStats,
-  // Webhook rate limiting
-  checkWebhookRateLimit,
-  setup,
-};
-
 // ── Outbound message log (WhatsApp chat history per patient) ──────────────────
 // Every outbound message is stored here for the history view
 async function logOutboundMessage({ phone, patientName, triggerType, message }) {
@@ -724,3 +703,23 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+module.exports = {
+  pool,  // exported for direct query access in whatsapp.js
+  alreadySent, logSent,
+  scheduleRecall, getDueRecalls, markRecallSent,
+  addNoShow, getPendingNoShows, markNoShowRecovered,
+  logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
+  listState,
+  logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
+  upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
+  logBill, getBills, getRecentBills,
+  getBroadcastLists, createBroadcastList, getBroadcastListMembers,
+  logBroadcast, getBroadcastHistory,
+  // Consent tracking (DPDP Act)
+  recordConsent, hasConsent,
+  // Meta delivery status tracking
+  updateDeliveryStatus, getDeliveryStats,
+  // Webhook rate limiting
+  checkWebhookRateLimit,
+  setup,
+};
