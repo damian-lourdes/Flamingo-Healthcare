@@ -555,9 +555,27 @@ router.post('/mocdoc/appt-confirm', async (req, res) => {
     const bookingMode = d.bookingmode || '';  // FrontOffice-Call, Online, etc.
     const notes       = d.appnotes   || '';
     const apptKey     = d.apptkey    || `${d.phone}_${apptDate}_${startTime}` || null;
+    const email       = d.email      || null;
+    const referredBy  = d.referred_by || null;
+    const bookedByName = d.bookedbyname || d.bookedby || null;
 
     // Upsert patient profile
-    await db.upsertPatient({ phone, name: fullName, specialty, doctor }).catch(() => {});
+    await db.upsertPatient({ phone, name: fullName, specialty, doctor, email }).catch(() => {});
+
+    // Log appointment in visits table for audit/reporting
+    await db.logVisit({
+      phone,
+      checkin_date:    apptDate,
+      checkin_time:    startTime,
+      doctor,
+      booked_doctor:   doctor,
+      specialty,
+      nature_of_visit: specialty,
+      entity_location: location,
+      referred_by:     referredBy,
+      created_by:      bookedByName,
+      visit_status:    'appointment',
+    });
 
     // Send appointment confirmation
     await engagement.onAppointmentBooked({
