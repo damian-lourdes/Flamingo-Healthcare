@@ -693,6 +693,27 @@ router.post('/mocdoc/appt-cancel', async (req, res) => {
       : apptDate || startTime || '';
 
     const apptKey  = d.apptkey || `${d.phone}_${apptDate}_${startTime}` || null;
+    const email       = d.email      || null;
+    const referredBy  = d.referred_by || null;
+    const bookedByName = d.bookedbyname || d.bookedby || null;
+    const location    = d['dr location'] || '';
+
+    await db.upsertPatient({ phone, name: fullName, specialty, doctor, email }).catch(() => {});
+
+    // Log the cancelled appointment in visits table for audit/reporting
+    await db.logVisit({
+      phone,
+      checkin_date:    apptDate,
+      checkin_time:    startTime,
+      doctor,
+      booked_doctor:   doctor,
+      specialty,
+      nature_of_visit: specialty,
+      entity_location: location,
+      referred_by:     referredBy,
+      created_by:      cancelledBy || bookedByName,
+      visit_status:    'appointment-cancelled',
+    });
 
     await engagement.onAppointmentCancelled({
       phone, name: fullName, doctor, specialty,
