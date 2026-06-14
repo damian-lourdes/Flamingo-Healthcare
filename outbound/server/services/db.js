@@ -63,6 +63,10 @@ async function setup() {
     CREATE INDEX IF NOT EXISTS idx_calls   ON dialer_calls(called_at DESC);
     CREATE INDEX IF NOT EXISTS idx_cb      ON callback_queue(status);
 
+    -- Dialer: ref_id for upserting call-attempt → completion updates (Exotel CallSid)
+    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS ref_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_calls_ref ON dialer_calls(ref_id);
+
     -- Outbound message history (every WhatsApp sent)
     CREATE TABLE IF NOT EXISTS outbound_messages (
       id           SERIAL PRIMARY KEY,
@@ -296,18 +300,59 @@ const markNoShowRecovered = id =>
   pool.query("UPDATE follow_up_queue SET status='recovered' WHERE id=$1",[id]);
 
 // ── Dialer ────────────────────────────────────────────────────────────────────
-async function logCall({phone, callerName, durationSec, status, agent, notes}) {
-  const res = await pool.query(
-    'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
-    [phone, callerName||null, durationSec||null, status, agent||null, notes||null]
-  );
-  if (status === 'missed') {
-    await pool.query(
-      'INSERT INTO callback_queue(phone,caller_name,call_id) VALUES($1,$2,$3)',
-      [phone, callerName||null, res.rows[0].id]
+async function logCall({phone, callerName, durationSec, status, agent, notes, refId}) {
+  let id;
+
+  // If we have a ref_id (e.g. Exotel CallSid) and a row already exists for it,
+  // update that row in place rather than inserting a duplicate — this lets the
+  // initial "call-attempt" event (incoming call received) get upgraded by a
+  // later completion event (answered/missed) for the same call.
+  if (refId) {
+    const existing = await pool.query(
+      'SELECT id FROM dialer_calls WHERE ref_id=$1 ORDER BY id DESC LIMIT 1',
+      [refId]
     );
+    if (existing.rows.length) {
+      id = existing.rows[0].id;
+      await pool.query(
+        `UPDATE dialer_calls SET
+           status       = $1,
+           duration_sec = COALESCE($2, duration_sec),
+           agent        = COALESCE($3, agent),
+           notes        = COALESCE($4, notes),
+           caller_name  = COALESCE($5, caller_name)
+         WHERE id=$6`,
+        [status, durationSec||null, agent||null, notes||null, callerName||null, id]
+      );
+    }
   }
-  return res.rows[0].id;
+
+  if (!id) {
+    const res = await pool.query(
+      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null]
+    );
+    id = res.rows[0].id;
+  }
+
+  // Queue a callback for any call that wasn't answered — this includes
+  // 'missed' (explicit) and 'received' (incoming call logged on a trial
+  // Exotel account where the Connect leg never completes, so the patient
+  // effectively got no response and needs a human callback).
+  if (status === 'missed' || status === 'received') {
+    const already = await pool.query(
+      'SELECT id FROM callback_queue WHERE call_id=$1',
+      [id]
+    );
+    if (!already.rows.length) {
+      await pool.query(
+        'INSERT INTO callback_queue(phone,caller_name,call_id) VALUES($1,$2,$3)',
+        [phone, callerName||null, id]
+      );
+    }
+  }
+
+  return id;
 }
 
 const getCalls = (limit=100) =>
@@ -323,7 +368,7 @@ const getDialerStats = async () => {
   const today = new Date(); today.setHours(0,0,0,0);
   const [total,missed,answered,avgDur] = await Promise.all([
     q1('SELECT COUNT(*) AS n FROM dialer_calls WHERE called_at>=NOW()-INTERVAL \'7 days\''),
-    q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status='missed' AND called_at>=NOW()-INTERVAL '7 days'"),
+    q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status IN ('missed','received') AND called_at>=NOW()-INTERVAL '7 days'"),
     q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
     q1("SELECT ROUND(AVG(duration_sec)) AS avg FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
   ]);

@@ -22,10 +22,17 @@ function normalisePayload(body) {
       'canceled':    'abandoned',
       'cancelled':   'abandoned',
     };
+    // call-attempt fires the moment the call comes in, before Connect runs —
+    // on a trial Exotel account the Connect leg never completes, so this is
+    // often the ONLY event we'll ever get for a given call.
+    const callType = (body.CallType || '').toLowerCase();
+    const status = callType === 'call-attempt'
+      ? 'received'
+      : (statusMap[(body.Status || body.CallType || '').toLowerCase()] || 'answered');
     return {
       phone:       body.From        || body.CallFrom || body.caller_id_number || '',
       caller_name: body.CallerName  || null,
-      status:      statusMap[(body.Status || body.CallType || '').toLowerCase()] || 'answered',
+      status,
       duration_sec:parseInt(body.RecordingDuration || body.Duration || body.ConversationDuration || 0),
       agent:       body.To          || body.CallTo || null,
       ref_id:      body.CallSid     || null,
@@ -130,12 +137,10 @@ router.get('/call', async (req, res) => {
       CallType:   d.CallType,
     };
     console.log(`[dialer] Exotel GET: ${d.CallType} from ${d.CallFrom || d.From}`);
-    // Only process completed calls, not call-attempt
-    if (d.CallType !== 'call-attempt') {
-      await processCall(payload);
-    } else {
-      console.log(`[dialer] call-attempt from ${d.CallFrom} — waiting for completion`);
-    }
+    // Process every event — call-attempt logs the incoming call immediately
+    // (essential on a trial account where the Connect leg never completes),
+    // and a later completion event (same CallSid) upgrades that same row.
+    await processCall(payload);
   } catch (e) {
     console.error('[dialer] GET call error:', e.message);
   }
@@ -152,26 +157,31 @@ async function processCall(rawPayload) {
   }
 
   const normPhone = normalisePhone(phone);
-
-  // Skip call-attempt events — only process final status
-  const callType = (rawPayload.CallType || '').toLowerCase();
-  if (callType === 'call-attempt') {
-    console.log(`[dialer] call-attempt from ${normPhone} — waiting for final status`);
-    return;
-  }
+  const finalStatus = (status || 'answered').toLowerCase();
 
   await db.logCall({
     phone:       normPhone,
     callerName:  caller_name  || null,
     durationSec: duration_sec || null,
-    status:      (status || 'answered').toLowerCase(),
+    status:      finalStatus,
     agent:       agent  || null,
     notes:       ref_id ? `ref:${ref_id}` : null,
+    refId:       ref_id || null,
   });
+
+  if (finalStatus === 'received') {
+    // Incoming call logged (e.g. trial account, Connect leg never completes).
+    // Treat it like a missed call from the patient's perspective — send a
+    // single "sorry we missed you, we'll call back" message and queue a
+    // callback so staff can follow up. (Not onIncomingCall too — that would
+    // be a second, redundant WhatsApp message for the same call.)
+    await engagement.onMissedCall({ phone: normPhone, callerName: caller_name || null });
+    console.log(`[dialer] Incoming call received from ${normPhone} (ref:${ref_id||'-'}) — callback queued`);
+    return;
+  }
 
   await engagement.onIncomingCall({ phone: normPhone, callerName: caller_name || null });
 
-  const finalStatus = (status || '').toLowerCase();
   if (finalStatus === 'missed' || finalStatus === 'no-answer' || finalStatus === 'busy') {
     await engagement.onMissedCall({ phone: normPhone, callerName: caller_name || null });
     console.log(`[dialer] Missed call from ${normPhone} — callback queued`);
