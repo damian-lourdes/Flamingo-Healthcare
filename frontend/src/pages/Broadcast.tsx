@@ -23,9 +23,26 @@ export function BroadcastPage() {
   const [ofResult, setOfResult]   = useState('')
   const [ofLoading, setOfLoading] = useState(false)
 
+  // Camp fields
+  const [cpType, setCpType]       = useState('')
+  const [cpDate, setCpDate]       = useState('')
+  const [cpVenue, setCpVenue]     = useState('')
+  const [cpDetails, setCpDetails] = useState('')
+  const [cpRecip, setCpRecip]     = useState('')
+  const [cpResult, setCpResult]   = useState('')
+  const [cpLoading, setCpLoading] = useState(false)
+
+  // Monthly tip
+  const [mtTip, setMtTip]         = useState('')
+  const [mtLoading, setMtLoading] = useState(false)
+  const [mtResult, setMtResult]   = useState('')
+
   const loadHistory = () => api.broadcastHistory().then(setCampaigns)
   useEffect(() => { loadHistory() }, [])
   useEffect(() => { if (tab === 'history') loadHistory() }, [tab])
+  useEffect(() => {
+    if (tab === 'monthly') api.getSetting('monthly_health_tip').then(r => setMtTip(r.value || ''))
+  }, [tab])
 
   const sendHT = async () => {
     if (!htMsg || !htRecip) return
@@ -45,12 +62,30 @@ export function BroadcastPage() {
     loadHistory()
   }
 
+  const sendCamp = async () => {
+    if (!cpType || !cpDate || !cpVenue || !cpRecip) return
+    setCpLoading(true)
+    const r = await api.sendCamp({ campType: cpType, date: cpDate, venue: cpVenue, details: cpDetails || undefined, recipients: parseRecipients(cpRecip) })
+    setCpResult(r.success === false ? (r as any).message : `Done — sent: ${r.sent} failed: ${r.failed}`)
+    setCpLoading(false)
+    loadHistory()
+  }
+
+  const saveMonthly = async () => {
+    setMtLoading(true)
+    const r = await api.setSetting('monthly_health_tip', mtTip)
+    setMtResult((r as any).success === false ? 'Save failed' : 'Saved — used automatically on the 1st of each month')
+    setMtLoading(false)
+  }
+
   return (
     <div className="card">
       <TabBar
         tabs={[
           { key: 'health-tip', label: 'Health tip' },
           { key: 'offer',      label: 'Offer / package' },
+          { key: 'camp',       label: 'Camp' },
+          { key: 'monthly',    label: 'Monthly tip' },
           { key: 'history',    label: 'Campaign history' },
         ]}
         active={tab}
@@ -103,6 +138,42 @@ export function BroadcastPage() {
               {ofResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{ofResult}</div>}
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === 'camp' && (
+        <div style={{ padding: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <input className="inp" placeholder="Camp type e.g. free diabetes screening camp" value={cpType} onChange={e => setCpType(e.target.value)} style={{ marginBottom: 8 }} />
+              <input className="inp" placeholder="Date & time e.g. 5 July 2026, 9 AM–1 PM" value={cpDate} onChange={e => setCpDate(e.target.value)} style={{ marginBottom: 8 }} />
+              <input className="inp" placeholder="Venue e.g. our Ambattur centre" value={cpVenue} onChange={e => setCpVenue(e.target.value)} style={{ marginBottom: 8 }} />
+              <textarea className="inp" rows={3} style={{ resize: 'vertical' }} placeholder="Details — free services, who can attend..."
+                value={cpDetails} onChange={e => setCpDetails(e.target.value)} />
+            </div>
+            <div>
+              <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 10 }}
+                placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
+                value={cpRecip} onChange={e => setCpRecip(e.target.value)} />
+              <Btn variant="primary" style={{ width: '100%' }} loading={cpLoading} onClick={sendCamp}>Send camp info</Btn>
+              {cpResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{cpResult}</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'monthly' && (
+        <div style={{ padding: 16, maxWidth: 640 }}>
+          <div className="form-label" style={{ marginBottom: 4 }}>Monthly health tip</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 8 }}>
+            Sent automatically to all opted-in patients on the 1st of each month, via the approved <Mono>monthly_health_tip</Mono> template. Edit the tip text below.
+          </div>
+          <textarea className="inp" rows={5} style={{ resize: 'vertical' }} placeholder="e.g. Stay hydrated and aim for 30 minutes of activity daily."
+            value={mtTip} onChange={e => setMtTip(e.target.value)} />
+          <div style={{ marginTop: 10 }}>
+            <Btn variant="primary" loading={mtLoading} onClick={saveMonthly}>Save monthly tip</Btn>
+          </div>
+          {mtResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{mtResult}</div>}
         </div>
       )}
 

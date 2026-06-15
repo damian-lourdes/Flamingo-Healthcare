@@ -90,11 +90,11 @@ const TEMPLATES: Template[] = [
     message: <>Hi <em>[Patient]</em>! We noticed you missed your appointment with <em>[Doctor]</em> on <em>[Date]</em>.<br/><br/>Would you like to reschedule?<br/>📅 Book: flamingohealthcare.in<br/>📞 044-2658 2424</>
   },
   {
-    title: '📞 Incoming call — thank you', trigger: 'Any inbound call via dialer',
+    title: '📞 Answered call — thank you', trigger: 'Inbound call answered & completed',
     color: 'var(--amber)', headerClass: 'tpl-head-amber',
     badge: { label: 'Automated', variant: 'amber' },
-    desc: 'Sent immediately on every inbound call — answered or missed.',
-    message: <>Thank you for contacting Flamingo Healthcare 🙏<br/><br/>Our team will get back to you shortly.<br/>📞 044-2658 2424<br/>🕐 Mon–Sat: 8 AM – 7 PM | Emergency: 24/7</>
+    desc: 'Sent after an answered call completes (missed calls get the callback message instead).',
+    message: <>Thank you for calling Flamingo Healthcare 🙏<br/><br/>It was our pleasure to assist you. If you have further questions, our team is always here to help.<br/>📅 Book: flamingohealthcare.in<br/>📞 044-2658 2424</>
   },
   {
     title: '📞 Missed call — callback', trigger: 'Inbound call not answered',
@@ -146,10 +146,10 @@ const TEMPLATES: Template[] = [
     message: <>Dear <em>[Patient]</em>,<br/><br/>This is a courtesy message from Flamingo Healthcare, Ambattur.<br/><br/>As a <em>[Specialty]</em> patient, periodic follow-up consultations are recommended.<br/><br/>📞 044-2658 2424<br/>📅 flamingohealthcare.in</>
   },
   {
-    title: '📢 Monthly health broadcast', trigger: 'Manual — from Campaigns section',
+    title: '📢 Monthly health broadcast', trigger: 'Automatic — 1st of each month (also sendable manually)',
     color: 'var(--blue)', headerClass: 'tpl-head-blue',
-    badge: { label: 'Manual', variant: 'blue' },
-    desc: 'Health tips, packages, and camp info sent to segmented patient lists.',
+    badge: { label: 'Auto + Manual', variant: 'blue' },
+    desc: 'Monthly health tip auto-sends on the 1st; offers and camps sent on demand from Campaigns. Uses approved WhatsApp templates.',
     message: <>Dear <em>[Patient]</em>,<br/><br/><em>[Custom health tip / offer / camp details]</em><br/><br/>📍 Flamingo Healthcare, Ambattur<br/>📞 044-2658 2424</>
   },
 ]

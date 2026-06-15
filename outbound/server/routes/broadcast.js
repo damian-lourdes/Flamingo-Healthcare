@@ -39,7 +39,8 @@ router.get('/history/:id/messages', async (req, res, next) => {
 // ── Send broadcasts ───────────────────────────────────────────────────────────
 router.post('/health-tip', async (req, res, next) => {
   try {
-    const { recipients, campaignName } = req.body;
+    const { recipients } = req.body;
+    const campaignName = req.body.campaignName || req.body.campaign_name || 'Health tip';
     const tip = req.body.tip || req.body.message;   // accept old field name too
     const result = await engagement.sendHealthTip({ recipients, tip, campaignName });
     res.json({ success: true, ...result });
@@ -48,7 +49,10 @@ router.post('/health-tip', async (req, res, next) => {
 
 router.post('/offer', async (req, res, next) => {
   try {
-    const { recipients, offerTitle, offerDetails, validTill } = req.body;
+    const { recipients } = req.body;
+    const offerTitle   = req.body.offerTitle   || req.body.offer_title;
+    const offerDetails = req.body.offerDetails || req.body.offer_details;
+    const validTill    = req.body.validTill    || req.body.valid_till;
     const result = await engagement.sendOfferTemplate({ recipients, offerTitle, offerDetails, validTill });
     res.json({ success: true, ...result });
   } catch (e) { next(e); }

@@ -144,6 +144,10 @@ export const api = {
     post<BroadcastSendResult>('/api/broadcast/offer', body),
   sendPersonalised: (body: {phone: string; name: string; message: string}) =>
     post<SuccessResponse>('/api/broadcast/personalised', body),
+  sendCamp:        (body: {campType: string; date: string; venue: string; details?: string; recipients: {phone: string; name?: string}[]}) =>
+    post<BroadcastSendResult>('/api/broadcast/camp', body),
+  getSetting:      (key: string) => get<{key: string; value: string | null}>('/api/dashboard/settings/' + key, { key, value: null }),
+  setSetting:      (key: string, value: string) => post<SuccessResponse>('/api/dashboard/settings/' + key, { value }),
 
   // Engagement
   postConsultation: (body: {phone: string; name: string; doctor: string; specialty: string; follow_up_date?: string}) =>
