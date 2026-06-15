@@ -49,6 +49,9 @@ module.exports = {
 
   onCallNumber: process.env.ON_CALL_NUMBER || null,
 
+  monthlyHealthTip: process.env.MONTHLY_HEALTH_TIP ||
+    'Stay hydrated, aim for 30 minutes of activity daily, and don\'t skip your routine check-ups.',
+
   hospital: {
     name:       'Flamingo Healthcare, Ambattur, Chennai',
     phone:      '044-2658 2424',

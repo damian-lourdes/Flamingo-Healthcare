@@ -67,6 +67,42 @@ async function sendButtons(to, body, buttons) {
   });
 }
 
+// Send a Meta-approved template message.
+// Required for marketing/business-initiated messages OUTSIDE the 24-hour window —
+// free text (sendText) will not be delivered there.
+async function sendTemplate(to, templateName, languageCode, bodyParams = [], bookUrlParam = null, { patientName, triggerType } = {}) {
+  const components = [];
+
+  // Body variables {{1}}, {{2}}... map in order to bodyParams
+  if (bodyParams.length) {
+    components.push({
+      type: 'body',
+      parameters: bodyParams.map(t => ({ type: 'text', text: String(t) })),
+    });
+  }
+
+  // If the template has a dynamic URL button (our "Book" button), fill it
+  if (bookUrlParam) {
+    components.push({
+      type: 'button', sub_type: 'url', index: '0',
+      parameters: [{ type: 'text', text: String(bookUrlParam) }],
+    });
+  }
+
+  const d = await post({
+    to, type: 'template',
+    template: { name: templateName, language: { code: languageCode || 'en' }, components },
+  });
+
+  // Mirror sendText: record DPDP consent + delivery tracking on success
+  const waMessageId = d?.messages?.[0]?.id || null;
+  if (waMessageId) {
+    await db.recordConsent({ phone: to, patientName: patientName || null, triggerType: triggerType || null }).catch(() => {});
+    await db.updateDeliveryStatus({ waMessageId, phone: to, status: 'sent' }).catch(() => {});
+  }
+  return d;
+}
+
 // ── Service health state (checked by dashboard API) ───────────────────────────
 const healthState = {
   consecutiveFails: 0,
@@ -85,4 +121,4 @@ function getHealth() {
   };
 }
 
-module.exports = { sendText, sendButtons, getHealth };
+module.exports = { sendText, sendButtons, sendTemplate, getHealth };

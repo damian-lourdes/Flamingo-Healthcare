@@ -15,6 +15,7 @@
 const engagement = require('./engagement');
 const db         = require('./db');
 const config     = require('../config');
+const wa         = require('./whatsapp');
 
 const pool = new (require('pg').Pool)(config.db);
 const q = (s,p) => pool.query(s,p).then(r=>r.rows);
@@ -203,24 +204,66 @@ async function runReEngagement() {
   if (patients.length) console.log(`[scheduler] Re-engagement: ${patients.length} sent`);
 }
 
+// ── MONTHLY HEALTH BROADCAST (1st of each month) ──────────────────────────────
+async function runMonthlyBroadcast() {
+  const now = new Date();
+  const ym  = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const trigger = `monthly_health_${ym}`;   // unique per month → natural dedup
+
+  // Opted-in patients who haven't already received THIS month's broadcast
+  const patients = await q(`
+    SELECT phone, name FROM patient_profiles
+    WHERE opt_in = TRUE
+      AND NOT EXISTS (
+        SELECT 1 FROM engagement_log el
+        WHERE el.phone = patient_profiles.phone AND el.trigger_type = $1
+      )
+    LIMIT 10000
+  `, [trigger]);
+  if (!patients.length) return;
+
+  const tip = config.monthlyHealthTip;
+  let sent = 0, failed = 0;
+  for (const p of patients) {
+    try {
+      await wa.sendTemplate(
+        p.phone, 'monthly_health_tip', 'en',
+        [p.name || 'there', tip],          // {{1}} = name, {{2}} = tip
+        config.hospital.bookingUrl,        // fills the "Book" button URL
+        { patientName: p.name, triggerType: 'monthly_broadcast' }
+      );
+      await db.logSent(p.phone, trigger);
+      await db.logOutboundMessage({ phone: p.phone, patientName: p.name, triggerType: 'monthly_broadcast', message: tip }).catch(() => {});
+      sent++;
+    } catch { failed++; }
+    await new Promise(r => setTimeout(r, 50)); // pacing; Meta tier limits still apply
+  }
+  await db.logBroadcast({ name: `Monthly Health Tip ${ym}`, message: tip, recipientCount: patients.length, sent, failed }).catch(() => {});
+  console.log(`[scheduler] Monthly broadcast ${ym}: sent ${sent}, failed ${failed}`);
+}
 // ── MASTER DAILY JOB ──────────────────────────────────────────────────────────
 async function runDailyJobs() {
-  console.log(`[scheduler] Daily run at ${new Date().toLocaleTimeString()}`);
-  // Run in order — rate-limited by engagement.send() dedup
+  const now = new Date();
+  console.log(`[scheduler] Daily run at ${now.toLocaleTimeString()}`);
   await runBirthdays();
   await runAnniversaries();
   await runFestivalGreetings();
   await runRecalls();
   await runNoShowRecovery();
-  // These run less aggressively
-  const hour = new Date().getHours();
+
+  const hour = now.getHours();
   if (hour === 9) {
     await runPostVisitReminders();
     await runReEngagement();
   }
+
+  // Monthly health broadcast — only on the 1st of the month
+  if (now.getDate() === 1) {
+    await runMonthlyBroadcast();
+  }
+
   console.log('[scheduler] Daily run complete');
 }
-
 // ── SCHEDULER ─────────────────────────────────────────────────────────────────
 function start() {
   // Schedule daily at 9:00 AM
@@ -252,4 +295,4 @@ function start() {
   }, 10000);
 }
 
-module.exports = { start, runDailyJobs, runBirthdays, runFestivalGreetings };
+module.exports = { start, runDailyJobs, runBirthdays, runFestivalGreetings, runMonthlyBroadcast };
