@@ -28,6 +28,28 @@ const authRoutes       = require('./routes/auth');
 // ── App setup ─────────────────────────────────────────────────────────────────
 const app = express();
 
+// CORS — the dashboard frontend is deployed on a different Railway domain
+// than this API, so every request is cross-origin. Requests carrying an
+// Authorization header (i.e. every authenticated dashboard call) trigger a
+// CORS preflight (OPTIONS) first. This MUST be the very first middleware:
+//  - it answers OPTIONS preflights directly (before requireAuth would 401
+//    them — preflights never carry the Authorization header)
+//  - it sets Access-Control-Allow-Origin on every response (including error
+//    responses), since a response missing that header is blocked by the
+//    browser regardless of its status code or content.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 // Security headers (relaxed CSP for inline dashboard scripts/styles)
 app.use(helmet({
   contentSecurityPolicy: false,
