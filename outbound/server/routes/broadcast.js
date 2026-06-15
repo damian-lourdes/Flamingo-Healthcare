@@ -30,6 +30,12 @@ router.get('/history', async (_req, res, next) => {
   catch (e) { next(e); }
 });
 
+// Individual messages sent as part of a given campaign (drill-down).
+router.get('/history/:id/messages', async (req, res, next) => {
+  try { res.json(await db.getBroadcastMessages(req.params.id)); }
+  catch (e) { next(e); }
+});
+
 // ── Send broadcasts ───────────────────────────────────────────────────────────
 router.post('/health-tip', async (req, res, next) => {
   try {

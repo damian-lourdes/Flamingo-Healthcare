@@ -174,11 +174,15 @@ async function setup() {
     CREATE INDEX IF NOT EXISTS idx_delivery_phone
       ON message_delivery(phone, updated_at DESC);
 
-    -- Outbound messages: add wa_message_id column for delivery tracking
+    -- Outbound messages: add wa_message_id column for delivery tracking,
+    -- and broadcast_id to trace an individual message back to the campaign
+    -- (if any) that triggered it.
     ALTER TABLE outbound_messages
       ADD COLUMN IF NOT EXISTS wa_message_id TEXT,
+      ADD COLUMN IF NOT EXISTS broadcast_id INTEGER REFERENCES broadcast_campaigns(id),
       ADD COLUMN IF NOT EXISTS delivery_status TEXT DEFAULT 'sent',
       ADD COLUMN IF NOT EXISTS consent_recorded BOOLEAN DEFAULT FALSE;
+    CREATE INDEX IF NOT EXISTS idx_om_broadcast ON outbound_messages(broadcast_id);
 
     -- Patient profiles: additional MocDoc registration fields
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lname            TEXT;
@@ -470,6 +474,7 @@ async function setup() {
     COMMENT ON TABLE dialer_calls         IS 'Every inbound call event from the PBX/Exotel webhook (including call-attempt-only events on trial accounts, logged with status=received). Linked to patient_profiles via patient_id once the caller is identified; caller_name retains the raw, possibly-unverified name given by the caller.';
     COMMENT ON TABLE callback_queue       IS 'Queue of calls awaiting a staff callback (status=missed or received on dialer_calls). phone/caller_name are NOT stored here — join to dialer_calls via call_id (and to patient_profiles via dialer_calls.patient_id) to get them.';
     COMMENT ON TABLE outbound_messages    IS 'WhatsApp message history (one row per message sent) for the dashboard chat-history view. Linked to patient_profiles via patient_id — patient name is looked up via that join, not duplicated here.';
+    COMMENT ON COLUMN outbound_messages.broadcast_id IS 'Set when this message was sent as part of a broadcast campaign — references broadcast_campaigns(id). NULL for automated trigger messages (reminders, recalls, etc.).';
     COMMENT ON TABLE consent_log          IS 'DPDP Act consent record — one row per patient phone number, written on first WhatsApp contact (implicit opt-in). Linked to patient_profiles via patient_id; patient name is looked up via that join, not duplicated here.';
     COMMENT ON TABLE message_delivery     IS 'Per-message WhatsApp delivery status (sent/delivered/read/failed) reported by Meta''s delivery webhook, keyed by wa_message_id. Linked to patient_profiles via patient_id.';
     COMMENT ON TABLE engagement_log       IS 'Dedup guard: records every automated message trigger fired for a phone number, so the same trigger_type is not sent twice within the configured window.';
@@ -707,17 +712,20 @@ setup().catch(err => { console.error('[db] setup failed:', err.message); process
 
 // ── Outbound message log (WhatsApp chat history per patient) ──────────────────
 // Every outbound message is stored here for the history view
-async function logOutboundMessage({ phone, patientName, triggerType, message }) {
+async function logOutboundMessage({ phone, patientName, triggerType, message, broadcastId }) {
   const patientId = await resolvePatientId(phone);
   await pool.query(
-    `INSERT INTO outbound_messages(phone, patient_id, trigger_type, message)
-     VALUES($1,$2,$3,$4)`,
-    [phone, patientId, triggerType, message]
+    `INSERT INTO outbound_messages(phone, patient_id, trigger_type, message, broadcast_id)
+     VALUES($1,$2,$3,$4,$5)`,
+    [phone, patientId, triggerType, message, broadcastId || null]
   );
   // patientName is kept as a parameter for callers that pass it (used elsewhere
   // to upsert patient_profiles) — it is no longer stored on this row directly,
   // since outbound_messages.patient_id -> patient_profiles.name is now the
   // single source of truth for the patient's display name.
+  //
+  // broadcastId links this message back to broadcast_campaigns(id) when it
+  // was sent as part of a broadcast — null for automated trigger messages.
 }
 
 async function getOutboundHistory({ phone, date, limit } = {}) {
@@ -1023,9 +1031,40 @@ async function logBroadcast({ name, message, recipientCount, sent, failed }) {
   );
 }
 
+// Create the campaign row BEFORE sending, so its id can be stamped onto each
+// individual outbound_messages row as broadcast_id (traceability: which
+// messages belong to which campaign).
+async function createBroadcastCampaign({ name, message, recipientCount, actor='system' }) {
+  const row = await q1(
+    `INSERT INTO broadcast_campaigns(name,message,recipient_count,sent_count,failed_count)
+     VALUES($1,$2,$3,0,0) RETURNING id`,
+    [name, message, recipientCount]
+  );
+  await logAudit({ actor, action: 'create', entity: 'broadcast_campaigns', entityId: row.id,
+    after: { name, message, recipient_count: recipientCount } });
+  return row.id;
+}
+
+// Update sent/failed counts once the send loop has finished.
+const updateBroadcastCounts = (id, sent, failed) =>
+  pool.query(
+    'UPDATE broadcast_campaigns SET sent_count=$2, failed_count=$3 WHERE id=$1',
+    [id, sent, failed]
+  );
+
 async function getBroadcastHistory() {
   return q('SELECT * FROM broadcast_campaigns ORDER BY sent_at DESC LIMIT 50');
 }
+
+// Individual messages sent as part of a given campaign (drill-down).
+const getBroadcastMessages = (broadcastId) =>
+  q(`
+    SELECT om.*, pp.name AS patient_name
+    FROM outbound_messages om
+    LEFT JOIN patient_profiles pp ON pp.id = om.patient_id
+    WHERE om.broadcast_id = $1
+    ORDER BY om.sent_at DESC
+  `, [broadcastId]);
 
 // ── Export all ───────────────────────────────────────────────────────────────
 // ── DPDP Consent tracking ─────────────────────────────────────────────────────
@@ -1127,6 +1166,7 @@ module.exports = {
   logBill, getBills, getRecentBills,
   getBroadcastLists, createBroadcastList, getBroadcastListMembers,
   logBroadcast, getBroadcastHistory,
+  createBroadcastCampaign, updateBroadcastCounts, getBroadcastMessages,
   // Consent tracking (DPDP Act)
   recordConsent, hasConsent,
   // Meta delivery status tracking

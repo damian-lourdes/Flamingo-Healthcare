@@ -316,6 +316,9 @@ async function sendPersonalised({ phone, name, message, triggerType='personalise
 // ── HEALTH TIP BROADCAST ──────────────────────────────────────────────────────
 async function sendHealthBroadcast({ recipients, message, campaignName }) {
   let sent=0, failed=0;
+  const broadcastId = await db.createBroadcastCampaign({
+    name: campaignName || 'Broadcast', message, recipientCount: recipients.length,
+  }).catch(() => null);
   for (const { phone, name } of recipients) {
     try {
       const personalised = message
@@ -325,15 +328,20 @@ async function sendHealthBroadcast({ recipients, message, campaignName }) {
         .replace(/{phone}/gi, PHONE);
       await wa.sendText(phone, personalised);
       await db.logSent(phone, `broadcast_${Date.now()}`);
-      await db.logOutboundMessage({ phone, patientName:name, triggerType:'broadcast', message:personalised }).catch(()=>{});
+      await db.logOutboundMessage({ phone, patientName:name, triggerType:'broadcast', message:personalised, broadcastId }).catch(()=>{});
       await db.upsertPatient({ phone, name }).catch(()=>{});
       sent++;
     } catch { failed++; }
     await new Promise(r => setTimeout(r, 15));
   }
-  await db.logBroadcast({ name:campaignName||'Broadcast', message, recipientCount:recipients.length, sent, failed }).catch(()=>{});
+  if (broadcastId) {
+    await db.updateBroadcastCounts(broadcastId, sent, failed).catch(()=>{});
+  } else {
+    // Fallback if campaign row creation failed — at least record the summary.
+    await db.logBroadcast({ name:campaignName||'Broadcast', message, recipientCount:recipients.length, sent, failed }).catch(()=>{});
+  }
   console.log(`[broadcast] "${campaignName}" — sent:${sent} failed:${failed}`);
-  return { sent, failed };
+  return { sent, failed, broadcastId };
 }
 
 // ── OFFER / PACKAGE MESSAGE ───────────────────────────────────────────────────
