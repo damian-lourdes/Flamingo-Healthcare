@@ -10,6 +10,7 @@ import type {
   OutboundMessage, DashboardState, DialerStats,
   CallRecord, CallbackRecord, RecallRecord, FollowUpRecord,
   BroadcastCampaign, PatientProfile, SuccessResponse, BroadcastSendResult,
+  BroadcastList, BroadcastListMember,
 } from '../types'
 
 // ── API base URL ─────────────────────────────────────────────────────────────
@@ -138,6 +139,8 @@ export const api = {
 
   // Broadcast
   broadcastHistory: () => get<BroadcastCampaign[]>('/api/broadcast/history', []),
+  broadcastLists:   () => get<BroadcastList[]>('/api/broadcast/lists', []),
+  broadcastListMembers: (id: number) => get<BroadcastListMember[]>(`/api/broadcast/lists/${id}/members`, []),
   sendHealthTip:   (body: {campaign_name: string; message: string; recipients: {phone: string; name?: string}[]}) =>
     post<BroadcastSendResult>('/api/broadcast/health-tip', body),
   sendOffer:       (body: {offer_title: string; offer_details: string; valid_till?: string; recipients: {phone: string; name?: string}[]}) =>

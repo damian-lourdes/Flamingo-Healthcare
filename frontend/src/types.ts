@@ -116,6 +116,19 @@ export interface BroadcastSendResult {
   total: number
 }
 
+export interface BroadcastList {
+  id: number
+  name: string
+  description: string | null
+  phone_count: number
+  created_at: string
+}
+
+export interface BroadcastListMember {
+  phone: string
+  name: string | null
+}
+
 export type Page =
   | 'overview'
   | 'history'

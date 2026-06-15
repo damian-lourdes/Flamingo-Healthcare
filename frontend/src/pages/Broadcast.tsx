@@ -1,8 +1,62 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { TabBar, Card, Btn, Mono, Empty } from '../components/ui'
+import { TabBar, Card, Btn, Mono, Empty, Select } from '../components/ui'
 import { parseRecipients, ago } from '../utils'
-import type { BroadcastCampaign } from '../types'
+import type { BroadcastCampaign, BroadcastList } from '../types'
+
+// Loads recipients into the shared textarea either from every opted-in
+// patient or from a saved broadcast list, in the same "phone,Name" format
+// the manual textarea expects — so the result stays visible and editable
+// before sending.
+function RecipientPicker({ onLoad }: { onLoad: (text: string, info: string) => void }) {
+  const [lists, setLists] = useState<BroadcastList[]>([])
+  const [loadingAll, setLoadingAll]   = useState(false)
+  const [loadingList, setLoadingList] = useState(false)
+
+  useEffect(() => { api.broadcastLists().then(setLists) }, [])
+
+  const toLines = (rows: { phone: string; name?: string | null }[]) =>
+    rows.map(r => r.name ? `${r.phone},${r.name}` : r.phone).join('\n')
+
+  const loadAll = async () => {
+    setLoadingAll(true)
+    try {
+      const patients = await api.patients()
+      const opted = patients.filter(p => p.opt_in !== false)
+      onLoad(toLines(opted), `Loaded ${opted.length} opted-in patient${opted.length === 1 ? '' : 's'}`)
+    } finally { setLoadingAll(false) }
+  }
+
+  const loadList = async (id: string) => {
+    if (!id) return
+    setLoadingList(true)
+    try {
+      const members = await api.broadcastListMembers(Number(id))
+      const list = lists.find(l => String(l.id) === id)
+      onLoad(toLines(members), `Loaded ${members.length} recipient${members.length === 1 ? '' : 's'} from "${list?.name || 'list'}"`)
+    } finally { setLoadingList(false) }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+      <Btn variant="sm" loading={loadingAll} onClick={loadAll}>All opted-in patients</Btn>
+      {lists.length > 0 && (
+        <Select
+          defaultValue=""
+          disabled={loadingList}
+          onChange={e => loadList(e.target.value)}
+          style={{ width: 'auto', fontSize: 12.5, padding: '4px 8px' }}
+        >
+          <option value="">Saved list…</option>
+          {lists.map(l => (
+            <option key={l.id} value={l.id}>{l.name} ({l.phone_count})</option>
+          ))}
+        </Select>
+      )}
+      <span style={{ fontSize: 12, color: 'var(--text3)' }}>or type/edit recipients below</span>
+    </div>
+  )
+}
 
 export function BroadcastPage() {
   const [tab, setTab] = useState('health-tip')
@@ -12,6 +66,7 @@ export function BroadcastPage() {
   const [htName, setHtName]       = useState('')
   const [htMsg, setHtMsg]         = useState('')
   const [htRecip, setHtRecip]     = useState('')
+  const [htInfo, setHtInfo]       = useState('')
   const [htResult, setHtResult]   = useState('')
   const [htLoading, setHtLoading] = useState(false)
 
@@ -20,6 +75,7 @@ export function BroadcastPage() {
   const [ofDetails, setOfDetails] = useState('')
   const [ofValid, setOfValid]     = useState('')
   const [ofRecip, setOfRecip]     = useState('')
+  const [ofInfo, setOfInfo]       = useState('')
   const [ofResult, setOfResult]   = useState('')
   const [ofLoading, setOfLoading] = useState(false)
 
@@ -29,6 +85,7 @@ export function BroadcastPage() {
   const [cpVenue, setCpVenue]     = useState('')
   const [cpDetails, setCpDetails] = useState('')
   const [cpRecip, setCpRecip]     = useState('')
+  const [cpInfo, setCpInfo]       = useState('')
   const [cpResult, setCpResult]   = useState('')
   const [cpLoading, setCpLoading] = useState(false)
 
@@ -109,9 +166,11 @@ export function BroadcastPage() {
               <div className="form-label" style={{ marginBottom: 4 }}>
                 Recipients <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— one per line: +91XXXXXXXXXX,Name</span>
               </div>
+              <RecipientPicker onLoad={(text, info) => { setHtRecip(text); setHtInfo(info) }} />
               <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13 }}
                 placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
-                value={htRecip} onChange={e => setHtRecip(e.target.value)} />
+                value={htRecip} onChange={e => { setHtRecip(e.target.value); setHtInfo('') }} />
+              {htInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>{htInfo}</div>}
               <div style={{ marginTop: 10 }}>
                 <Btn variant="primary" style={{ width: '100%' }} loading={htLoading} onClick={sendHT}>Send health tip</Btn>
               </div>
@@ -131,10 +190,12 @@ export function BroadcastPage() {
               <input className="inp" placeholder="Valid till (e.g. 30 June 2026)" value={ofValid} onChange={e => setOfValid(e.target.value)} />
             </div>
             <div>
-              <textarea className="inp" rows={7} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 10 }}
+              <RecipientPicker onLoad={(text, info) => { setOfRecip(text); setOfInfo(info) }} />
+              <textarea className="inp" rows={7} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 4 }}
                 placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
-                value={ofRecip} onChange={e => setOfRecip(e.target.value)} />
-              <Btn variant="primary" style={{ width: '100%' }} loading={ofLoading} onClick={sendOffer}>Send offer</Btn>
+                value={ofRecip} onChange={e => { setOfRecip(e.target.value); setOfInfo('') }} />
+              {ofInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 6 }}>{ofInfo}</div>}
+              <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={ofLoading} onClick={sendOffer}>Send offer</Btn>
               {ofResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{ofResult}</div>}
             </div>
           </div>
@@ -152,10 +213,12 @@ export function BroadcastPage() {
                 value={cpDetails} onChange={e => setCpDetails(e.target.value)} />
             </div>
             <div>
-              <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 10 }}
+              <RecipientPicker onLoad={(text, info) => { setCpRecip(text); setCpInfo(info) }} />
+              <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 4 }}
                 placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
-                value={cpRecip} onChange={e => setCpRecip(e.target.value)} />
-              <Btn variant="primary" style={{ width: '100%' }} loading={cpLoading} onClick={sendCamp}>Send camp info</Btn>
+                value={cpRecip} onChange={e => { setCpRecip(e.target.value); setCpInfo('') }} />
+              {cpInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 6 }}>{cpInfo}</div>}
+              <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={cpLoading} onClick={sendCamp}>Send camp info</Btn>
               {cpResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{cpResult}</div>}
             </div>
           </div>
