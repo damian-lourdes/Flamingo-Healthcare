@@ -51,7 +51,7 @@ export default function App() {
       api.followups(),
     ])
     setCallbackCount(cbs.length)
-    setFollowUpCount(followups.length + fups.length)
+    setFollowUpCount((followups?.length ?? 0) + (fups?.length ?? 0))
   }
 
   useEffect(() => {
