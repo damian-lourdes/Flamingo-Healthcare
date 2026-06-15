@@ -38,12 +38,13 @@ async function runBirthdays() {
 async function runAnniversaries() {
   // Patients whose first message was sent on this calendar day in a prior year
   const patients = await q(`
-    SELECT DISTINCT ON (phone) phone, patient_name AS name
-    FROM outbound_messages
-    WHERE TO_CHAR(sent_at,'MM-DD') = TO_CHAR(NOW(),'MM-DD')
-      AND EXTRACT(YEAR FROM sent_at) < EXTRACT(YEAR FROM NOW())
-      AND phone IN (SELECT phone FROM patient_profiles WHERE opt_in = TRUE)
-    ORDER BY phone, sent_at ASC
+    SELECT DISTINCT ON (om.phone) om.phone, pp.name AS name
+    FROM outbound_messages om
+    JOIN patient_profiles pp ON pp.phone = om.phone
+    WHERE TO_CHAR(om.sent_at,'MM-DD') = TO_CHAR(NOW(),'MM-DD')
+      AND EXTRACT(YEAR FROM om.sent_at) < EXTRACT(YEAR FROM NOW())
+      AND pp.opt_in = TRUE
+    ORDER BY om.phone, om.sent_at ASC
   `);
   for (const p of patients) {
     await engagement.sendPersonalised({
@@ -63,7 +64,7 @@ async function runAnniversaries() {
 async function runPostVisitReminders() {
   // Patients whose last outbound message was ~7 days ago and last trigger was post_consultation
   const patients = await q(`
-    SELECT DISTINCT ON (om.phone) om.phone, om.patient_name AS name,
+    SELECT DISTINCT ON (om.phone) om.phone, pp.name AS name,
            pp.specialty, pp.doctor
     FROM outbound_messages om
     JOIN patient_profiles pp ON pp.phone = om.phone
