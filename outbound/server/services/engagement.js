@@ -358,20 +358,28 @@ async function sendHealthBroadcast({ recipients, message, campaignName }) {
 // Generic template broadcast — paramsFor(name) returns the {{1}},{{2}}… values per recipient
 async function broadcastTemplate({ recipients, templateName, lang = 'en', paramsFor, bookUrl = BOOK, campaignName, logMessage }) {
   let sent = 0, failed = 0;
+  const broadcastId = await db.createBroadcastCampaign({
+    name: campaignName || templateName, message: logMessage || templateName,
+    recipientCount: recipients.length,
+  }).catch(() => null);
   for (const { phone, name } of recipients) {
     try {
       await wa.sendTemplate(phone, templateName, lang, paramsFor(name), bookUrl,
         { patientName: name, triggerType: 'broadcast' });
       await db.logSent(phone, `broadcast_${Date.now()}`);
-      await db.logOutboundMessage({ phone, patientName: name, triggerType: 'broadcast', message: logMessage }).catch(() => {});
+      await db.logOutboundMessage({ phone, patientName: name, triggerType: 'broadcast', message: logMessage, broadcastId }).catch(() => {});
       await db.upsertPatient({ phone, name }).catch(() => {});
       sent++;
     } catch { failed++; }
     await new Promise(r => setTimeout(r, 50)); // Meta tier limits still apply
   }
-  await db.logBroadcast({ name: campaignName || templateName, message: logMessage || templateName, recipientCount: recipients.length, sent, failed }).catch(() => {});
+  if (broadcastId) {
+    await db.updateBroadcastCounts(broadcastId, sent, failed).catch(() => {});
+  } else {
+    await db.logBroadcast({ name: campaignName || templateName, message: logMessage || templateName, recipientCount: recipients.length, sent, failed }).catch(() => {});
+  }
   console.log(`[broadcast] ${templateName} "${campaignName}" — sent:${sent} failed:${failed}`);
-  return { sent, failed };
+  return { sent, failed, broadcastId };
 }
 
 async function sendHealthTip({ recipients, tip, campaignName }) {

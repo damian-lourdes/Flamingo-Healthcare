@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { TabBar, Card, Btn, Mono, Empty, Select } from '../components/ui'
 import { parseRecipients, ago } from '../utils'
-import type { BroadcastCampaign, BroadcastList } from '../types'
+import type { BroadcastCampaign, BroadcastList, BroadcastListMember } from '../types'
 
 // Loads recipients into the shared textarea either from every opted-in
 // patient or from a saved broadcast list, in the same "phone,Name" format
@@ -94,12 +94,53 @@ export function BroadcastPage() {
   const [mtLoading, setMtLoading] = useState(false)
   const [mtResult, setMtResult]   = useState('')
 
+  // Lists tab
+  const [lists, setLists]           = useState<BroadcastList[]>([])
+  const [listName, setListName]     = useState('')
+  const [listDesc, setListDesc]     = useState('')
+  const [listRecip, setListRecip]   = useState('')
+  const [listInfo, setListInfo]     = useState('')
+  const [listResult, setListResult] = useState('')
+  const [listLoading, setListLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [members, setMembers] = useState<Record<number, BroadcastListMember[]>>({})
+  const [membersLoading, setMembersLoading] = useState<number | null>(null)
+
   const loadHistory = () => api.broadcastHistory().then(setCampaigns)
   useEffect(() => { loadHistory() }, [])
   useEffect(() => { if (tab === 'history') loadHistory() }, [tab])
   useEffect(() => {
     if (tab === 'monthly') api.getSetting('monthly_health_tip').then(r => setMtTip(r.value || ''))
   }, [tab])
+
+  const loadLists = () => api.broadcastLists().then(setLists)
+  useEffect(() => { if (tab === 'lists') loadLists() }, [tab])
+
+  const toggleMembers = async (id: number) => {
+    if (expandedId === id) { setExpandedId(null); return }
+    setExpandedId(id)
+    if (!members[id]) {
+      setMembersLoading(id)
+      const rows = await api.broadcastListMembers(id)
+      setMembers(m => ({ ...m, [id]: rows }))
+      setMembersLoading(null)
+    }
+  }
+
+  const createList = async () => {
+    if (!listName || !listRecip) return
+    setListLoading(true)
+    const phones = parseRecipients(listRecip).map(r => r.phone)
+    const r = await api.createBroadcastList({ name: listName, description: listDesc || undefined, phones })
+    if ((r as any).success === false) {
+      setListResult('Save failed')
+    } else {
+      setListResult(`Saved "${listName}" with ${phones.length} recipient${phones.length === 1 ? '' : 's'}`)
+      setListName(''); setListDesc(''); setListRecip(''); setListInfo('')
+      loadLists()
+    }
+    setListLoading(false)
+  }
 
   const sendHT = async () => {
     if (!htMsg || !htRecip) return
@@ -143,6 +184,7 @@ export function BroadcastPage() {
           { key: 'offer',      label: 'Offer / package' },
           { key: 'camp',       label: 'Camp' },
           { key: 'monthly',    label: 'Monthly tip' },
+          { key: 'lists',      label: 'Lists' },
           { key: 'history',    label: 'Campaign history' },
         ]}
         active={tab}
@@ -237,6 +279,83 @@ export function BroadcastPage() {
             <Btn variant="primary" loading={mtLoading} onClick={saveMonthly}>Save monthly tip</Btn>
           </div>
           {mtResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{mtResult}</div>}
+        </div>
+      )}
+
+      {tab === 'lists' && (
+        <div style={{ padding: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+            <div>
+              <div className="form-label" style={{ marginBottom: 4 }}>List name</div>
+              <input className="inp" placeholder="e.g. Diabetic patients — Ambattur" value={listName}
+                onChange={e => setListName(e.target.value)} style={{ marginBottom: 8 }} />
+              <div className="form-label" style={{ marginBottom: 4 }}>Description (optional)</div>
+              <input className="inp" placeholder="e.g. For monthly diabetes-care tips" value={listDesc}
+                onChange={e => setListDesc(e.target.value)} />
+            </div>
+            <div>
+              <div className="form-label" style={{ marginBottom: 4 }}>
+                Recipients <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— one per line: +91XXXXXXXXXX,Name</span>
+              </div>
+              <RecipientPicker onLoad={(text, info) => { setListRecip(text); setListInfo(info) }} />
+              <textarea className="inp" rows={6} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13 }}
+                placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
+                value={listRecip} onChange={e => { setListRecip(e.target.value); setListInfo('') }} />
+              {listInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>{listInfo}</div>}
+              <div style={{ marginTop: 10 }}>
+                <Btn variant="primary" style={{ width: '100%' }} loading={listLoading} onClick={createList}>Save list</Btn>
+              </div>
+              {listResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{listResult}</div>}
+            </div>
+          </div>
+
+          {lists.length === 0
+            ? <Empty msg="No saved lists yet" />
+            : (
+              <table>
+                <thead>
+                  <tr><th>Name</th><th>Description</th><th>Recipients</th><th>Created</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {lists.map(l => (
+                    <React.Fragment key={l.id}>
+                      <tr>
+                        <td style={{ fontWeight: 500 }}>{l.name || '—'}</td>
+                        <td style={{ color: 'var(--text3)' }}>{l.description || '—'}</td>
+                        <td><Mono>{l.phone_count}</Mono></td>
+                        <td><Mono>{ago(l.created_at)}</Mono></td>
+                        <td>
+                          <Btn variant="sm" loading={membersLoading === l.id} onClick={() => toggleMembers(l.id)}>
+                            {expandedId === l.id ? 'Hide' : 'View'} members
+                          </Btn>
+                        </td>
+                      </tr>
+                      {expandedId === l.id && (
+                        <tr>
+                          <td colSpan={5} style={{ background: 'var(--bg2)' }}>
+                            {!members[l.id]
+                              ? null
+                              : members[l.id].length === 0
+                                ? <Empty msg="No members" />
+                                : (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 4px' }}>
+                                    {members[l.id].map((m, i) => (
+                                      <span key={i} className="mono" style={{ fontSize: 12.5, background: 'var(--bg)', padding: '3px 8px', borderRadius: 6 }}>
+                                        {m.phone}{m.name ? ` — ${m.name}` : ''}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )
+                            }
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            )
+          }
         </div>
       )}
 

@@ -141,6 +141,8 @@ export const api = {
   broadcastHistory: () => get<BroadcastCampaign[]>('/api/broadcast/history', []),
   broadcastLists:   () => get<BroadcastList[]>('/api/broadcast/lists', []),
   broadcastListMembers: (id: number) => get<BroadcastListMember[]>(`/api/broadcast/lists/${id}/members`, []),
+  createBroadcastList: (body: { name: string; description?: string; phones: string[] }) =>
+    post<{ success: boolean; id: number }>('/api/broadcast/lists', body),
   sendHealthTip:   (body: {campaign_name: string; message: string; recipients: {phone: string; name?: string}[]}) =>
     post<BroadcastSendResult>('/api/broadcast/health-tip', body),
   sendOffer:       (body: {offer_title: string; offer_details: string; valid_till?: string; recipients: {phone: string; name?: string}[]}) =>
