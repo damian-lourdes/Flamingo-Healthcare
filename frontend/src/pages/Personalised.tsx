@@ -126,8 +126,8 @@ export function PersonalisedPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <div className="form-label" style={{ marginBottom: 8 }}>Template</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
-                {Object.entries({ anniversary: 'Anniversary', followup: 'Follow-up nudge', health: 'Health reminder', festival: 'Festival wishes' })
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, marginBottom: 10 }}>
+                {Object.entries({ followup: 'Follow-up nudge', health: 'Health reminder', festival: 'Festival wishes' })
                   .map(([key, label]) => (
                     <Btn key={key} style={{ fontSize: 12.5 }} onClick={() => setPmMsg(TEMPLATES[key])}>{label}</Btn>
                   ))}
