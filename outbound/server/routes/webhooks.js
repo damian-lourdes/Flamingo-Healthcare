@@ -87,13 +87,19 @@ router.post('/whatsapp', async (req, res) => {
         // ── Inbound messages — opt-out handling ──────────────────────────────
         for (const msg of val.messages || []) {
           const phone = `+${msg.from}`;
-          const text  = (msg.text?.body || '').trim().toUpperCase();
+          const text = (
+            msg.text?.body ||
+            msg.button?.text || msg.button?.payload ||
+            msg.interactive?.button_reply?.title || msg.interactive?.button_reply?.id ||
+            ''
+          ).trim().toUpperCase();
 
           // STOP / UNSUBSCRIBE → set opt_in = false
-          if (['STOP', 'UNSUBSCRIBE', 'OPT OUT', 'OPTOUT'].includes(text)) {
+          if (['STOP', 'UNSUBSCRIBE', 'OPT OUT', 'OPTOUT', 'STOP UPDATES'].includes(text)) {
             await db.pool?.query(
               'UPDATE patient_profiles SET opt_in=FALSE WHERE phone=$1', [phone]
             ).catch(() => {});
+            await require('../services/whatsapp').sendText(phone, 'You have been unsubscribed from updates. Reply START anytime to resume.').catch(() => {});
             console.log(`[wa-inbound] opt-out: ${phone}`);
           }
 
