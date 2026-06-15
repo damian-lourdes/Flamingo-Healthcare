@@ -6,6 +6,7 @@ const router         = require('express').Router();
 const db             = require('../services/db');
 const engagement     = require('../services/engagement');
 const normalisePhone = require('../middleware/normalisePhone');
+const requireAuth    = require('../middleware/requireAuth');
 
 // ── Payload normaliser — maps any PBX format to internal format ───────────────
 function normalisePayload(body) {
@@ -105,19 +106,29 @@ function normalisePayload(body) {
   };
 }
 
-// ── Stats + queue ─────────────────────────────────────────────────────────────
-router.get('/stats', async (_req, res, next) => {
+// ── Stats + queue (dashboard reads — require login) ──────────────────────────
+router.get('/stats', requireAuth, async (_req, res, next) => {
   try { res.json(await db.getDialerStats()); }
   catch (e) { next(e); }
 });
 
-router.get('/calls', async (req, res, next) => {
+router.get('/calls', requireAuth, async (req, res, next) => {
   try { res.json(await db.getCalls(req.query.limit || 200)); }
   catch (e) { next(e); }
 });
 
-router.get('/callbacks', async (_req, res, next) => {
+router.get('/callbacks', requireAuth, async (_req, res, next) => {
   try { res.json(await db.getCallbackQueue()); }
+  catch (e) { next(e); }
+});
+
+router.get('/recalls', requireAuth, async (_req, res, next) => {
+  try { res.json(await db.getPendingRecalls()); }
+  catch (e) { next(e); }
+});
+
+router.get('/followups', requireAuth, async (_req, res, next) => {
+  try { res.json(await db.getPendingNoShows()); }
   catch (e) { next(e); }
 });
 
@@ -200,10 +211,36 @@ router.post('/call', async (req, res) => {
   }
 });
 
-// ── Mark callback done ────────────────────────────────────────────────────────
-router.post('/callback/:id/done', async (req, res, next) => {
+// ── Mark callback done (dashboard action — requires login) ───────────────────
+router.post('/callback/:id/done', requireAuth, async (req, res, next) => {
   try {
     await db.markCallbackDone(req.params.id, req.body.status || 'called_back');
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
+// ── Manually log a call from the dashboard (requires login) ──────────────────
+router.post('/call/manual', requireAuth, async (req, res, next) => {
+  try {
+    const { phone, caller_name, duration_sec, status } = req.body || {};
+    if (!phone || !status) return res.status(400).json({ error: 'phone and status are required' });
+    const id = await db.logCall({
+      phone:       normalisePhone(phone),
+      callerName:  caller_name || null,
+      durationSec: duration_sec || null,
+      status,
+      agent:       req.actor || null,
+      notes:       'manual entry',
+      refId:       null,
+    });
+    res.json({ success: true, id });
+  } catch (e) { next(e); }
+});
+
+// ── Mark a follow-up (no-show) as recovered (requires login) ─────────────────
+router.post('/followup/:id/done', requireAuth, async (req, res, next) => {
+  try {
+    await db.markNoShowRecovered(req.params.id);
     res.json({ success: true });
   } catch (e) { next(e); }
 });

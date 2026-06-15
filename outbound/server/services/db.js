@@ -268,9 +268,282 @@ async function setup() {
     CREATE INDEX IF NOT EXISTS idx_bills_no    ON bills(bill_no);
     CREATE INDEX IF NOT EXISTS idx_bills_phone ON bills(phone, created_at DESC);
 
+    -- ════════════════════════════════════════════════════════════════════════
+    -- DATABASE OPTIMISATION PASS — master tables, patient_id linkage,
+    -- audit columns, audit log, and documentation comments.
+    -- All statements below are additive/idempotent (IF NOT EXISTS / ON
+    -- CONFLICT DO NOTHING) and safe to re-run on every startup.
+    -- ════════════════════════════════════════════════════════════════════════
+
+    -- ── Master reference tables ──────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS specialties (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT UNIQUE NOT NULL,
+      created_by  TEXT DEFAULT 'system',
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_by  TEXT DEFAULT 'system',
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS doctors (
+      id            SERIAL PRIMARY KEY,
+      name          TEXT UNIQUE NOT NULL,
+      specialty_id  INTEGER REFERENCES specialties(id),
+      created_by    TEXT DEFAULT 'system',
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      updated_by    TEXT DEFAULT 'system',
+      updated_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ── Audit log ─────────────────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id           SERIAL PRIMARY KEY,
+      actor        TEXT NOT NULL DEFAULT 'system',
+      action       TEXT NOT NULL,
+      entity       TEXT NOT NULL,
+      entity_id    TEXT,
+      before_value JSONB,
+      after_value  JSONB,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entity_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_actor  ON audit_log(actor, created_at DESC);
+
+    -- ── patient_profiles: surrogate key already exists (id) — add doctor/specialty FKs
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS doctor_id    INTEGER REFERENCES doctors(id);
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS specialty_id INTEGER REFERENCES specialties(id);
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS created_by   TEXT DEFAULT 'system';
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS updated_by   TEXT DEFAULT 'system';
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW();
+
+    -- ── dialer_calls: link to patient once identified, audit columns ─────────
+    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'dialer-webhook';
+    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'dialer-webhook';
+    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_calls_patient ON dialer_calls(patient_id);
+
+    -- ── callback_queue: audit columns (phone/caller_name removed below — derive via call_id join)
+    ALTER TABLE callback_queue ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'dialer-webhook';
+    ALTER TABLE callback_queue ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'system';
+    ALTER TABLE callback_queue ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+    -- ── outbound_messages: link to patient (patient_name removed below) ──────
+    ALTER TABLE outbound_messages ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE outbound_messages ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+    ALTER TABLE outbound_messages ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'system';
+    ALTER TABLE outbound_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_om_patient ON outbound_messages(patient_id);
+
+    -- ── consent_log: link to patient (patient_name removed below) ────────────
+    ALTER TABLE consent_log ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE consent_log ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+    ALTER TABLE consent_log ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'system';
+    ALTER TABLE consent_log ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_consent_patient ON consent_log(patient_id);
+
+    -- ── message_delivery: link to patient, audit columns ──────────────────────
+    ALTER TABLE message_delivery ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE message_delivery ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+    ALTER TABLE message_delivery ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+    ALTER TABLE message_delivery ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'system';
+
+    -- ── recall_schedule: link to patient + specialty, audit columns ──────────
+    ALTER TABLE recall_schedule ADD COLUMN IF NOT EXISTS patient_id   INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE recall_schedule ADD COLUMN IF NOT EXISTS specialty_id INTEGER REFERENCES specialties(id);
+    ALTER TABLE recall_schedule ADD COLUMN IF NOT EXISTS created_by   TEXT DEFAULT 'scheduler';
+    ALTER TABLE recall_schedule ADD COLUMN IF NOT EXISTS created_at   TIMESTAMPTZ DEFAULT NOW();
+    ALTER TABLE recall_schedule ADD COLUMN IF NOT EXISTS updated_by   TEXT DEFAULT 'scheduler';
+    ALTER TABLE recall_schedule ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_recall_patient ON recall_schedule(patient_id);
+
+    -- ── follow_up_queue: link to patient + doctor + specialty, audit columns ─
+    ALTER TABLE follow_up_queue ADD COLUMN IF NOT EXISTS patient_id   INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE follow_up_queue ADD COLUMN IF NOT EXISTS doctor_id    INTEGER REFERENCES doctors(id);
+    ALTER TABLE follow_up_queue ADD COLUMN IF NOT EXISTS specialty_id INTEGER REFERENCES specialties(id);
+    ALTER TABLE follow_up_queue ADD COLUMN IF NOT EXISTS created_by   TEXT DEFAULT 'scheduler';
+    ALTER TABLE follow_up_queue ADD COLUMN IF NOT EXISTS updated_by   TEXT DEFAULT 'scheduler';
+    ALTER TABLE follow_up_queue ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_fuq_patient ON follow_up_queue(patient_id);
+
+    -- ── visits: link to patient + doctor + specialty, audit columns ──────────
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS patient_id   INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS doctor_id    INTEGER REFERENCES doctors(id);
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS specialty_id INTEGER REFERENCES specialties(id);
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS updated_by   TEXT DEFAULT 'mocdoc-webhook';
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id);
+
+    -- ── bills: link to patient + doctor, audit columns ────────────────────────
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS doctor_id  INTEGER REFERENCES doctors(id);
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'mocdoc-webhook';
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'mocdoc-webhook';
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    CREATE INDEX IF NOT EXISTS idx_bills_patient ON bills(patient_id);
+
+    -- ── broadcast_lists / members / campaigns: audit columns + patient link ──
+    ALTER TABLE broadcast_lists ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+    ALTER TABLE broadcast_lists ADD COLUMN IF NOT EXISTS updated_by TEXT DEFAULT 'system';
+    ALTER TABLE broadcast_lists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+    ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+    ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+    ALTER TABLE broadcast_campaigns ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+
+    -- ── engagement_log: audit column ──────────────────────────────────────────
+    ALTER TABLE engagement_log ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- BACKFILL — populate new FK columns from existing data (one-time, idempotent)
+    -- ════════════════════════════════════════════════════════════════════════
+
+    -- patient_id from phone (single source of truth = patient_profiles)
+    UPDATE dialer_calls dc        SET patient_id = pp.id FROM patient_profiles pp WHERE dc.phone = pp.phone AND dc.patient_id IS NULL;
+    UPDATE outbound_messages om   SET patient_id = pp.id FROM patient_profiles pp WHERE om.phone = pp.phone AND om.patient_id IS NULL;
+    UPDATE consent_log cl         SET patient_id = pp.id FROM patient_profiles pp WHERE cl.phone = pp.phone AND cl.patient_id IS NULL;
+    UPDATE message_delivery md     SET patient_id = pp.id FROM patient_profiles pp WHERE md.phone = pp.phone AND md.patient_id IS NULL;
+    UPDATE recall_schedule rs      SET patient_id = pp.id FROM patient_profiles pp WHERE rs.phone = pp.phone AND rs.patient_id IS NULL;
+    UPDATE follow_up_queue fq      SET patient_id = pp.id FROM patient_profiles pp WHERE fq.phone = pp.phone AND fq.patient_id IS NULL;
+    UPDATE visits v                SET patient_id = pp.id FROM patient_profiles pp WHERE v.phone = pp.phone AND v.patient_id IS NULL;
+    UPDATE bills b                 SET patient_id = pp.id FROM patient_profiles pp WHERE b.phone = pp.phone AND b.patient_id IS NULL AND b.phone IS NOT NULL AND b.phone <> '';
+    UPDATE broadcast_list_members blm SET patient_id = pp.id FROM patient_profiles pp WHERE blm.phone = pp.phone AND blm.patient_id IS NULL;
+
+    -- specialties — seed from every place a specialty name currently appears as free text
+    INSERT INTO specialties(name)
+    SELECT DISTINCT t.specialty FROM (
+      SELECT specialty FROM patient_profiles  WHERE specialty IS NOT NULL AND specialty <> ''
+      UNION SELECT specialty FROM visits      WHERE specialty IS NOT NULL AND specialty <> ''
+      UNION SELECT specialty FROM recall_schedule WHERE specialty IS NOT NULL AND specialty <> ''
+      UNION SELECT specialty FROM follow_up_queue WHERE specialty IS NOT NULL AND specialty <> ''
+    ) t
+    ON CONFLICT (name) DO NOTHING;
+
+    -- doctors — seed from every place a doctor name currently appears as free text
+    INSERT INTO doctors(name)
+    SELECT DISTINCT t.doctor FROM (
+      SELECT doctor FROM patient_profiles  WHERE doctor IS NOT NULL AND doctor <> ''
+      UNION SELECT doctor FROM visits      WHERE doctor IS NOT NULL AND doctor <> ''
+      UNION SELECT booked_doctor AS doctor FROM visits WHERE booked_doctor IS NOT NULL AND booked_doctor <> ''
+      UNION SELECT doctor FROM follow_up_queue WHERE doctor IS NOT NULL AND doctor <> ''
+      UNION SELECT consultant AS doctor FROM bills WHERE consultant IS NOT NULL AND consultant <> ''
+    ) t
+    ON CONFLICT (name) DO NOTHING;
+
+    -- Link doctors to a specialty where inferable from patient_profiles
+    UPDATE doctors dd SET specialty_id = sp.id
+    FROM patient_profiles pp JOIN specialties sp ON sp.name = pp.specialty
+    WHERE dd.name = pp.doctor AND dd.specialty_id IS NULL AND pp.specialty IS NOT NULL AND pp.specialty <> '';
+
+    -- Backfill doctor_id / specialty_id FKs from the matching master record
+    UPDATE visits v          SET doctor_id    = d.id FROM doctors d     WHERE v.doctor = d.name AND v.doctor_id IS NULL;
+    UPDATE visits v          SET specialty_id = s.id FROM specialties s WHERE v.specialty = s.name AND v.specialty_id IS NULL;
+    UPDATE bills b            SET doctor_id    = d.id FROM doctors d     WHERE b.consultant = d.name AND b.doctor_id IS NULL;
+    UPDATE follow_up_queue f  SET doctor_id    = d.id FROM doctors d     WHERE f.doctor = d.name AND f.doctor_id IS NULL;
+    UPDATE follow_up_queue f  SET specialty_id = s.id FROM specialties s WHERE f.specialty = s.name AND f.specialty_id IS NULL;
+    UPDATE recall_schedule r  SET specialty_id = s.id FROM specialties s WHERE r.specialty = s.name AND r.specialty_id IS NULL;
+    UPDATE patient_profiles p SET doctor_id    = d.id FROM doctors d     WHERE p.doctor = d.name AND p.doctor_id IS NULL;
+    UPDATE patient_profiles p SET specialty_id = s.id FROM specialties s WHERE p.specialty = s.name AND p.specialty_id IS NULL;
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- REMOVE DUPLICATE COLUMNS — superseded by patient_id / call_id joins.
+    -- Query functions below preserve the same field names via aliased joins,
+    -- so no other file needs to change.
+    -- ════════════════════════════════════════════════════════════════════════
+    ALTER TABLE callback_queue    DROP COLUMN IF EXISTS phone;
+    ALTER TABLE callback_queue    DROP COLUMN IF EXISTS caller_name;
+    ALTER TABLE broadcast_lists   DROP COLUMN IF EXISTS phone_count;
+    ALTER TABLE outbound_messages DROP COLUMN IF EXISTS patient_name;
+    ALTER TABLE consent_log       DROP COLUMN IF EXISTS patient_name;
+
+    -- ════════════════════════════════════════════════════════════════════════
+    -- DOCUMENTATION — table comments so anyone browsing the database (psql,
+    -- pgAdmin, DBeaver, TablePlus) can see what each table is for.
+    -- ════════════════════════════════════════════════════════════════════════
+    COMMENT ON TABLE patient_profiles    IS 'MASTER TABLE for patient identity. Single source of truth for phone number and name — every other table links here via patient_id instead of repeating phone/name. Holds full MocDoc demographics (DOB, address, guardian, etc.) for personalised WhatsApp messages.';
+    COMMENT ON TABLE doctors             IS 'Master list of doctors. Referenced via doctor_id from visits, bills, follow_up_queue and patient_profiles, since one patient may see multiple doctors over time.';
+    COMMENT ON TABLE specialties         IS 'Master list of medical specialties (e.g. Dentistry, Orthopaedics). Referenced via specialty_id from doctors, visits, bills, recall_schedule, follow_up_queue and patient_profiles.';
+    COMMENT ON TABLE visits              IS 'One row per check-in / check-in-update / check-out / appointment event from MocDoc. Linked to patient_profiles via patient_id, and to doctors/specialties via doctor_id/specialty_id.';
+    COMMENT ON TABLE bills                IS 'OP bill created / updated / cancelled events from MocDoc, including the full line-item breakdown (items JSONB). Linked to patient_profiles via patient_id when the bill payload includes a phone number (MocDoc often omits it).';
+    COMMENT ON TABLE dialer_calls         IS 'Every inbound call event from the PBX/Exotel webhook (including call-attempt-only events on trial accounts, logged with status=received). Linked to patient_profiles via patient_id once the caller is identified; caller_name retains the raw, possibly-unverified name given by the caller.';
+    COMMENT ON TABLE callback_queue       IS 'Queue of calls awaiting a staff callback (status=missed or received on dialer_calls). phone/caller_name are NOT stored here — join to dialer_calls via call_id (and to patient_profiles via dialer_calls.patient_id) to get them.';
+    COMMENT ON TABLE outbound_messages    IS 'WhatsApp message history (one row per message sent) for the dashboard chat-history view. Linked to patient_profiles via patient_id — patient name is looked up via that join, not duplicated here.';
+    COMMENT ON TABLE consent_log          IS 'DPDP Act consent record — one row per patient phone number, written on first WhatsApp contact (implicit opt-in). Linked to patient_profiles via patient_id; patient name is looked up via that join, not duplicated here.';
+    COMMENT ON TABLE message_delivery     IS 'Per-message WhatsApp delivery status (sent/delivered/read/failed) reported by Meta''s delivery webhook, keyed by wa_message_id. Linked to patient_profiles via patient_id.';
+    COMMENT ON TABLE engagement_log       IS 'Dedup guard: records every automated message trigger fired for a phone number, so the same trigger_type is not sent twice within the configured window.';
+    COMMENT ON TABLE recall_schedule      IS '30/60/90-day recall reminders to be sent on recall_at. Linked to patient_profiles via patient_id and to specialties via specialty_id.';
+    COMMENT ON TABLE follow_up_queue      IS 'No-show / missed-appointment recovery queue. Linked to patient_profiles via patient_id, and to doctors/specialties via doctor_id/specialty_id.';
+    COMMENT ON TABLE broadcast_lists      IS 'Saved patient segments for broadcast campaigns. Member count is derived from broadcast_list_members, not stored as a column.';
+    COMMENT ON TABLE broadcast_list_members IS 'Members of a broadcast_lists segment. Linked to patient_profiles via patient_id where the phone number matches an existing patient.';
+    COMMENT ON TABLE broadcast_campaigns  IS 'History of broadcast sends: campaign name, message text, and recipient/sent/failed counts.';
+    COMMENT ON TABLE audit_log            IS 'Application audit trail — records who (actor) did what (action) to which record (entity/entity_id) and when, including staff logins, login failures, and master-table (doctors/specialties/broadcast_lists) changes.';
+
+    COMMENT ON COLUMN patient_profiles.id         IS 'Surrogate primary key (patient_id) referenced by every other table. Stable even if the patient''s phone number changes.';
+    COMMENT ON COLUMN patient_profiles.phone      IS 'Current WhatsApp/contact number. Update this single column if a patient changes their number — all linked tables remain valid via patient_id.';
+    COMMENT ON COLUMN dialer_calls.caller_name    IS 'Name as given by the inbound caller — may be unverified and may not match patient_profiles.name. Once matched, patient_id is set and patient_profiles.name is the verified name.';
+    COMMENT ON COLUMN dialer_calls.patient_id     IS 'Set only if the calling number matches an existing patient_profiles row. A new/unknown caller does NOT create a patient_profiles row.';
+
   `);
   console.log('[db] Schema ready');
 }
+
+
+// ── Normalisation helpers ────────────────────────────────────────────────────
+// Look up the master patient_id for a phone number. Returns null if no
+// patient_profiles row exists yet (e.g. a brand-new caller).
+async function resolvePatientId(phone) {
+  if (!phone) return null;
+  const row = await q1('SELECT id FROM patient_profiles WHERE phone=$1', [phone]);
+  return row ? row.id : null;
+}
+
+// Get-or-create a specialty by name, returning its id. Returns null for empty input.
+async function resolveSpecialtyId(name, actor='system') {
+  if (!name) return null;
+  const row = await q1(`
+    INSERT INTO specialties(name, created_by, updated_by) VALUES($1,$2,$2)
+    ON CONFLICT(name) DO UPDATE SET name=EXCLUDED.name
+    RETURNING id
+  `, [name, actor]);
+  return row ? row.id : null;
+}
+
+// Get-or-create a doctor by name (optionally linking a specialty), returning its id.
+async function resolveDoctorId(name, specialtyName=null, actor='system') {
+  if (!name) return null;
+  const specialtyId = specialtyName ? await resolveSpecialtyId(specialtyName, actor) : null;
+  const row = await q1(`
+    INSERT INTO doctors(name, specialty_id, created_by, updated_by)
+    VALUES($1,$2,$3,$3)
+    ON CONFLICT(name) DO UPDATE SET
+      specialty_id = COALESCE(EXCLUDED.specialty_id, doctors.specialty_id)
+    RETURNING id
+  `, [name, specialtyId, actor]);
+  return row ? row.id : null;
+}
+
+const getDoctors = () =>
+  q(`SELECT d.*, s.name AS specialty_name FROM doctors d
+     LEFT JOIN specialties s ON s.id=d.specialty_id ORDER BY d.name`);
+
+const getSpecialties = () =>
+  q('SELECT * FROM specialties ORDER BY name');
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+async function logAudit({ actor, action, entity, entityId, before=null, after=null }) {
+  await pool.query(
+    `INSERT INTO audit_log(actor, action, entity, entity_id, before_value, after_value)
+     VALUES($1,$2,$3,$4,$5,$6)`,
+    [actor||'system', action, entity, entityId!=null?String(entityId):null,
+     before?JSON.stringify(before):null, after?JSON.stringify(after):null]
+  ).catch(e => console.error('[audit] error:', e.message));
+}
+
+const getAuditLog = (limit=200, entity=null) => entity
+  ? q('SELECT * FROM audit_log WHERE entity=$1 ORDER BY created_at DESC LIMIT $2', [entity, limit])
+  : q('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT $1', [limit]);
 
 // ── Engagement ────────────────────────────────────────────────────────────────
 const alreadySent = async (phone, type, hrs=24) =>
@@ -280,18 +553,37 @@ const logSent = (phone, type, refId=null) =>
   pool.query('INSERT INTO engagement_log(phone,trigger_type,ref_id) VALUES($1,$2,$3)',[phone,type,String(refId||'')]);
 
 // ── Recall ────────────────────────────────────────────────────────────────────
-const scheduleRecall = ({phone,name,specialty,daysFromNow}) =>
-  pool.query(`INSERT INTO recall_schedule(phone,name,specialty,recall_at,recall_days) VALUES($1,$2,$3,NOW()+($4||' days')::INTERVAL,$4)`,[phone,name,specialty,daysFromNow]).catch(()=>{});
+async function scheduleRecall({phone,name,specialty,daysFromNow}) {
+  const patientId   = await resolvePatientId(phone);
+  const specialtyId = specialty ? await resolveSpecialtyId(specialty, 'scheduler') : null;
+  return pool.query(
+    `INSERT INTO recall_schedule(phone,name,specialty,recall_at,recall_days,patient_id,specialty_id)
+     VALUES($1,$2,$3,NOW()+($4||' days')::INTERVAL,$4,$5,$6)`,
+    [phone,name,specialty,daysFromNow,patientId,specialtyId]
+  ).catch(()=>{});
+}
 
 const getDueRecalls = () =>
   q("SELECT * FROM recall_schedule WHERE status='pending' AND recall_at<=NOW()");
+
+// All pending recalls (including ones not yet due) — for the dashboard view
+const getPendingRecalls = () =>
+  q("SELECT * FROM recall_schedule WHERE status='pending' ORDER BY recall_at ASC");
 
 const markRecallSent = id =>
   pool.query("UPDATE recall_schedule SET status='sent' WHERE id=$1",[id]);
 
 // ── Follow-up queue ───────────────────────────────────────────────────────────
-const addNoShow = ({phone,name,doctor,specialty,originalDt}) =>
-  pool.query('INSERT INTO follow_up_queue(phone,name,doctor,specialty,original_dt) VALUES($1,$2,$3,$4,$5)',[phone,name,doctor,specialty,originalDt]);
+async function addNoShow({phone,name,doctor,specialty,originalDt}) {
+  const patientId   = await resolvePatientId(phone);
+  const doctorId    = doctor    ? await resolveDoctorId(doctor, specialty, 'scheduler') : null;
+  const specialtyId = specialty ? await resolveSpecialtyId(specialty, 'scheduler')       : null;
+  return pool.query(
+    `INSERT INTO follow_up_queue(phone,name,doctor,specialty,original_dt,patient_id,doctor_id,specialty_id)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [phone,name,doctor,specialty,originalDt,patientId,doctorId,specialtyId]
+  );
+}
 
 const getPendingNoShows = () =>
   q("SELECT * FROM follow_up_queue WHERE status='pending' ORDER BY created_at DESC");
@@ -302,6 +594,11 @@ const markNoShowRecovered = id =>
 // ── Dialer ────────────────────────────────────────────────────────────────────
 async function logCall({phone, callerName, durationSec, status, agent, notes, refId}) {
   let id;
+
+  // Link to an existing patient record if this number is already a known patient.
+  // A brand-new/unrecognised caller does NOT create a patient_profiles row —
+  // patient_id simply stays null until/unless they're already registered.
+  const patientId = await resolvePatientId(phone);
 
   // If we have a ref_id (e.g. Exotel CallSid) and a row already exists for it,
   // update that row in place rather than inserting a duplicate — this lets the
@@ -320,17 +617,19 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
            duration_sec = COALESCE($2, duration_sec),
            agent        = COALESCE($3, agent),
            notes        = COALESCE($4, notes),
-           caller_name  = COALESCE($5, caller_name)
-         WHERE id=$6`,
-        [status, durationSec||null, agent||null, notes||null, callerName||null, id]
+           caller_name  = COALESCE($5, caller_name),
+           patient_id   = COALESCE($6, patient_id),
+           updated_at   = NOW()
+         WHERE id=$7`,
+        [status, durationSec||null, agent||null, notes||null, callerName||null, patientId, id]
       );
     }
   }
 
   if (!id) {
     const res = await pool.query(
-      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null]
+      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id,patient_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null, patientId]
     );
     id = res.rows[0].id;
   }
@@ -346,8 +645,8 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
     );
     if (!already.rows.length) {
       await pool.query(
-        'INSERT INTO callback_queue(phone,caller_name,call_id) VALUES($1,$2,$3)',
-        [phone, callerName||null, id]
+        'INSERT INTO callback_queue(call_id) VALUES($1)',
+        [id]
       );
     }
   }
@@ -359,7 +658,17 @@ const getCalls = (limit=100) =>
   q('SELECT * FROM dialer_calls ORDER BY called_at DESC LIMIT $1',[limit]);
 
 const getCallbackQueue = () =>
-  q("SELECT * FROM callback_queue WHERE status='pending' ORDER BY missed_at ASC");
+  q(`
+    SELECT cq.id, cq.call_id, cq.missed_at, cq.status,
+           dc.phone,
+           COALESCE(pp.name, dc.caller_name) AS caller_name,
+           dc.patient_id
+    FROM callback_queue cq
+    JOIN dialer_calls dc       ON dc.id = cq.call_id
+    LEFT JOIN patient_profiles pp ON pp.id = dc.patient_id
+    WHERE cq.status='pending'
+    ORDER BY cq.missed_at ASC
+  `);
 
 const markCallbackDone = (id, status='called_back') =>
   pool.query('UPDATE callback_queue SET status=$1 WHERE id=$2',[status,id]);
@@ -399,21 +708,30 @@ setup().catch(err => { console.error('[db] setup failed:', err.message); process
 // ── Outbound message log (WhatsApp chat history per patient) ──────────────────
 // Every outbound message is stored here for the history view
 async function logOutboundMessage({ phone, patientName, triggerType, message }) {
+  const patientId = await resolvePatientId(phone);
   await pool.query(
-    `INSERT INTO outbound_messages(phone, patient_name, trigger_type, message)
+    `INSERT INTO outbound_messages(phone, patient_id, trigger_type, message)
      VALUES($1,$2,$3,$4)`,
-    [phone, patientName||null, triggerType, message]
+    [phone, patientId, triggerType, message]
   );
+  // patientName is kept as a parameter for callers that pass it (used elsewhere
+  // to upsert patient_profiles) — it is no longer stored on this row directly,
+  // since outbound_messages.patient_id -> patient_profiles.name is now the
+  // single source of truth for the patient's display name.
 }
 
 async function getOutboundHistory({ phone, date, limit } = {}) {
-  let sql = 'SELECT * FROM outbound_messages';
+  let sql = `
+    SELECT om.*, pp.name AS patient_name
+    FROM outbound_messages om
+    LEFT JOIN patient_profiles pp ON pp.id = om.patient_id
+  `;
   const params = [];
   const conds  = [];
-  if (phone) { params.push(phone); conds.push(`phone=$${params.length}`); }
-  if (date)  { params.push(date);  conds.push(`DATE(sent_at)=$${params.length}`); }
+  if (phone) { params.push(phone); conds.push(`om.phone=$${params.length}`); }
+  if (date)  { params.push(date);  conds.push(`DATE(om.sent_at)=$${params.length}`); }
   if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
-  sql += ' ORDER BY sent_at DESC';
+  sql += ' ORDER BY om.sent_at DESC';
   if (limit) { params.push(limit); sql += ` LIMIT $${params.length}`; }
   return q(sql, params);
 }
@@ -432,10 +750,12 @@ async function getOutboundByDate() {
 }
 
 async function getPatientMessageHistory(phone) {
-  return q(
-    'SELECT * FROM outbound_messages WHERE phone=$1 ORDER BY sent_at DESC LIMIT 100',
-    [phone]
-  );
+  return q(`
+    SELECT om.*, pp.name AS patient_name
+    FROM outbound_messages om
+    LEFT JOIN patient_profiles pp ON pp.id = om.patient_id
+    WHERE om.phone=$1 ORDER BY om.sent_at DESC LIMIT 100
+  `, [phone]);
 }
 
 // ── Patient profiles (for personalised messages) ──────────────────────────────
@@ -470,6 +790,7 @@ async function upsertPatient({
       $32,$33,$34,NOW()
     )
     ON CONFLICT(phone) DO UPDATE SET
+      updated_at       = NOW(),
       name             = COALESCE(EXCLUDED.name,             patient_profiles.name),
       lname            = COALESCE(EXCLUDED.lname,            patient_profiles.lname),
       title            = COALESCE(EXCLUDED.title,            patient_profiles.title),
@@ -539,6 +860,27 @@ async function upsertPatient({
     doctor            || null,
     branch            || 'Ambattur',
   ]);
+
+  const row = await q1('SELECT id FROM patient_profiles WHERE phone=$1', [phone]);
+  const patientId = row ? row.id : null;
+
+  // Resolve doctor / specialty master records and link them (additive —
+  // doctor/specialty text columns above are kept for backward compatibility)
+  if (patientId && (doctor || specialty)) {
+    const doctorId    = doctor    ? await resolveDoctorId(doctor, specialty, 'mocdoc-webhook') : null;
+    const specialtyId = specialty ? await resolveSpecialtyId(specialty, 'mocdoc-webhook')       : null;
+    if (doctorId || specialtyId) {
+      await pool.query(
+        `UPDATE patient_profiles SET
+           doctor_id    = COALESCE($1, doctor_id),
+           specialty_id = COALESCE($2, specialty_id)
+         WHERE id=$3`,
+        [doctorId, specialtyId, patientId]
+      );
+    }
+  }
+
+  return patientId;
 }
 
 // ── Visits log (one row per checkin/checkout) ─────────────────────────────────
@@ -548,20 +890,25 @@ async function logVisit({
   nature_of_visit, entity_location, referred_by, created_by,
   follow_up_date, visit_status,
 }) {
+  const patientId  = await resolvePatientId(phone);
+  const doctorId   = doctor    ? await resolveDoctorId(doctor, specialty, 'mocdoc-webhook') : null;
+  const specialtyId= specialty ? await resolveSpecialtyId(specialty, 'mocdoc-webhook')       : null;
+
   await pool.query(`
     INSERT INTO visits(
       phone, phid, opno, token, checkin_date, checkin_time,
       checkout_dt, checked_out_by, doctor, booked_doctor, specialty,
       nature_of_visit, entity_location, referred_by, created_by,
-      follow_up_date, visit_status
-    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      follow_up_date, visit_status, patient_id, doctor_id, specialty_id
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
   `, [
     phone, phid||null, opno||null, token||null,
     checkin_date||null, checkin_time||null,
     checkout_dt||null, checked_out_by||null, doctor||null, booked_doctor||null, specialty||null,
     nature_of_visit||null, entity_location||null,
-    referred_by||null, created_by||null,
+    referred_by||null, created_by||'mocdoc-webhook',
     follow_up_date||null, visit_status||'checkin',
+    patientId, doctorId, specialtyId,
   ]).catch(() => {});
 }
 
@@ -576,14 +923,20 @@ async function logBill({
   amount_received, amount_payable, total_tax, location, items,
   event_type, event_by, event_reason,
 }) {
+  // OP bill payloads from MocDoc usually have no phone — patient_id/doctor_id
+  // are populated when we *can* identify them, but patient_name and phone
+  // are kept on this table since they're often the only identifiers available.
+  const patientId = phone ? await resolvePatientId(phone) : null;
+  const doctorId  = consultant ? await resolveDoctorId(consultant, null, event_by||'mocdoc-webhook') : null;
+
   await pool.query(`
     INSERT INTO bills(
       bill_no, bill_date, phone, patient_name, consultant, saved_by, saved_at,
       payment_type, nature_of_visit, chief_complaint, referred_by, unregistered_dr,
       credit_provider, discount_amount, discount_percentage,
       amount_received, amount_payable, total_tax, location, items,
-      event_type, event_by, event_reason
-    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+      event_type, event_by, event_reason, patient_id, doctor_id, created_by
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
   `, [
     bill_no||null, bill_date||null, phone||null, patient_name||null,
     consultant||null, saved_by||null, saved_at||null,
@@ -593,6 +946,7 @@ async function logBill({
     amount_received||null, amount_payable||null, total_tax||null,
     location||null, items ? JSON.stringify(items) : null,
     event_type||'created', event_by||null, event_reason||null,
+    patientId, doctorId, event_by||'mocdoc-webhook',
   ]).catch(() => {});
 }
 
@@ -624,21 +978,31 @@ async function getBirthdaysToday() {
 }
 
 async function getBroadcastLists() {
-  return q('SELECT * FROM broadcast_lists ORDER BY created_at DESC');
+  // phone_count is derived from broadcast_list_members rather than stored,
+  // but aliased to the same field name for frontend compatibility.
+  return q(`
+    SELECT bl.*,
+           (SELECT COUNT(*) FROM broadcast_list_members blm WHERE blm.list_id=bl.id) AS phone_count
+    FROM broadcast_lists bl
+    ORDER BY bl.created_at DESC
+  `);
 }
 
 async function createBroadcastList({ name, description, phones }) {
   const res = await pool.query(
-    'INSERT INTO broadcast_lists(name, description, phone_count) VALUES($1,$2,$3) RETURNING id',
-    [name, description||null, phones.length]
+    'INSERT INTO broadcast_lists(name, description) VALUES($1,$2) RETURNING id',
+    [name, description||null]
   );
   const id = res.rows[0].id;
   for (const p of phones) {
+    const patientId = await resolvePatientId(p);
     await pool.query(
-      'INSERT INTO broadcast_list_members(list_id,phone) VALUES($1,$2) ON CONFLICT DO NOTHING',
-      [id, p]
+      'INSERT INTO broadcast_list_members(list_id,phone,patient_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
+      [id, p, patientId]
     );
   }
+  await logAudit({ actor: 'system', action: 'create', entity: 'broadcast_lists', entityId: id,
+    after: { name, description, member_count: phones.length } });
   return id;
 }
 
@@ -668,11 +1032,14 @@ async function getBroadcastHistory() {
 // Called on first WhatsApp send — records implicit opt-in for DPDP compliance
 async function recordConsent({ phone, patientName, triggerType }) {
   try {
+    const patientId = await resolvePatientId(phone);
+    // patientName is accepted for interface compatibility but no longer stored —
+    // consent_log.patient_id -> patient_profiles.name is the single source of truth.
     await pool.query(`
-      INSERT INTO consent_log(phone, patient_name, consent_type, trigger_type)
+      INSERT INTO consent_log(phone, patient_id, consent_type, trigger_type)
       VALUES($1, $2, 'implicit_whatsapp', $3)
-      ON CONFLICT(phone) DO NOTHING
-    `, [phone, patientName || null, triggerType || null]);
+      ON CONFLICT(phone) DO UPDATE SET patient_id = COALESCE(EXCLUDED.patient_id, consent_log.patient_id)
+    `, [phone, patientId, triggerType || null]);
   } catch (e) {
     // Non-fatal — log and continue
     console.error('[consent] error:', e.message);
@@ -751,7 +1118,7 @@ setInterval(() => {
 module.exports = {
   pool,  // exported for direct query access in whatsapp.js
   alreadySent, logSent,
-  scheduleRecall, getDueRecalls, markRecallSent,
+  scheduleRecall, getDueRecalls, getPendingRecalls, markRecallSent,
   addNoShow, getPendingNoShows, markNoShowRecovered,
   logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
   listState,
@@ -766,5 +1133,11 @@ module.exports = {
   updateDeliveryStatus, getDeliveryStats,
   // Webhook rate limiting
   checkWebhookRateLimit,
+  // Master data: doctors / specialties
+  getDoctors, getSpecialties, resolveDoctorId, resolveSpecialtyId,
+  // Patient identity resolution
+  resolvePatientId,
+  // Audit log
+  logAudit, getAuditLog,
   setup,
 };

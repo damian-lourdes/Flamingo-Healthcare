@@ -9,6 +9,7 @@ const helmet     = require('helmet');
 const config     = require('./config');
 const logger     = require('./middleware/logger');
 const errorHandler = require('./middleware/errorHandler');
+const requireAuth  = require('./middleware/requireAuth');
 const db         = require('./services/db');
 const wa         = require('./services/whatsapp');
 const sync       = require('./services/mocdoc-sync');
@@ -22,6 +23,7 @@ const engagementRoutes = require('./routes/engagement');
 const broadcastRoutes  = require('./routes/broadcast');
 const webhookRoutes    = require('./routes/webhooks');
 const schedulerRoutes  = require('./routes/scheduler');
+const authRoutes       = require('./routes/auth');
 
 // ── App setup ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -40,14 +42,35 @@ logger(app);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api',            dashboardRoutes);
-app.use('/dialer',         dialerRoutes);   // direct: POST /dialer/call
-app.use('/hooks/dialer',   dialerRoutes);   // Exotel webhook: GET /hooks/dialer/call
-app.use('/api/engagement', engagementRoutes);
-app.use('/api/broadcast',  broadcastRoutes);
+// /api/auth must be mounted first, and is never itself behind requireAuth —
+// login has to be reachable unauthenticated. Also aliased at /auth (no /api
+// prefix) — that's the path the current frontend build (client.ts) calls.
+app.use('/api/auth',       authRoutes);     // POST /api/auth/login, GET /api/auth/me
+app.use('/auth',           authRoutes);     // alias: POST /auth/login, GET /auth/me
+
+// Specific /api/* mounts are registered BEFORE the blanket '/api' catch-all
+// below. This matters for /api/dialer in particular: requireAuth short-
+// circuits with a 401 response (it doesn't call next() on failure), so if
+// the blanket '/api' mount matched first it would block the open dialer
+// webhook (/api/dialer/call) before dialerRoutes ever saw it. Registering
+// '/api/dialer' first means that mount — not the blanket one — handles it,
+// and dialerRoutes' own per-route requireAuth still protects /stats, /calls,
+// /callbacks, /recalls, /followups and /callback/:id/done.
+app.use('/api/dashboard',  requireAuth, dashboardRoutes); // alias: frontend calls /api/dashboard/*
+app.use('/api/dialer',     dialerRoutes);                 // alias: frontend calls /api/dialer/*
+app.use('/api/engagement', requireAuth, engagementRoutes);
+app.use('/api/broadcast',  requireAuth, broadcastRoutes);
+app.use('/api/scheduler',  requireAuth, schedulerRoutes);
+
+// Blanket fallback for the original (non-aliased) dashboard paths, e.g.
+// /api/state, /api/patients, /api/doctors, /api/audit-log.
+app.use('/api',            requireAuth, dashboardRoutes);
+
+app.use('/dialer',         dialerRoutes);   // direct: POST /dialer/call (no auth — server-to-server)
+app.use('/hooks/dialer',   dialerRoutes);   // Exotel webhook: GET /hooks/dialer/call (no auth)
 app.use('/webhooks',       webhookRoutes);  // legacy
 app.use('/hooks',          webhookRoutes);  // MocDoc + Exotel webhooks (new path)
-app.use('/api/scheduler',  schedulerRoutes);
+
 
 // Health check — used by pm2, load balancers, uptime monitors
 app.get('/health', async (_req, res) => {
