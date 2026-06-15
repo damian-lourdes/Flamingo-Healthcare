@@ -3,11 +3,21 @@
  */
 const router     = require('express').Router();
 const db         = require('../services/db');
+const wa         = require('../services/whatsapp');
 
 // ── Overview state ────────────────────────────────────────────────────────────
 router.get('/state', async (_req, res, next) => {
-  try { res.json(await db.listState()); }
-  catch (e) { next(e); }
+  try {
+    const state = await db.listState();
+    const waHealth = wa.getHealth();
+    res.json({
+      ...state,
+      // outbound is always "healthy" if this request is being served at all
+      outbound_healthy: true,
+      whatsapp_healthy: waHealth.healthy,
+      whatsapp_error:   waHealth.lastError,
+    });
+  } catch (e) { next(e); }
 });
 
 // ── Message history ───────────────────────────────────────────────────────────

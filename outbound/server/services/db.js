@@ -694,25 +694,50 @@ const getDialerStats = async () => {
     q1("SELECT ROUND(AVG(duration_sec)) AS avg FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
   ]);
   return {
-    totalCalls:    parseInt(total?.n||0),
-    missedCalls:   parseInt(missed?.n||0),
-    answeredCalls: parseInt(answered?.n||0),
-    avgDurationSec:parseInt(avgDur?.avg||0),
-    pendingCallbacks: (await getCallbackQueue()).length,
+    total_calls:       parseInt(total?.n||0),
+    missed_calls:      parseInt(missed?.n||0),
+    answered_calls:    parseInt(answered?.n||0),
+    avg_duration_sec:  parseInt(avgDur?.avg||0),
+    pending_callbacks: (await getCallbackQueue()).length,
   };
 };
 
 // ── Dashboard state ───────────────────────────────────────────────────────────
 async function listState() {
-  const [calls, callbacks, recallRows, fupRows, engLog] = await Promise.all([
-    getCalls(200),
+  const [
+    dialerStats, callbackQueue, dueRecalls, pendingFollowups,
+    engRows, deliveryRows,
+    messagesSentRow, patientsReachedRow, broadcastsSentRow, consentedRow,
+  ] = await Promise.all([
+    getDialerStats(),
     getCallbackQueue(),
     getDueRecalls(),
     getPendingNoShows(),
     q('SELECT trigger_type, COUNT(*) AS n FROM engagement_log GROUP BY trigger_type ORDER BY n DESC'),
+    getDeliveryStats(),
+    q1('SELECT COUNT(*) AS n FROM outbound_messages'),
+    q1('SELECT COUNT(DISTINCT phone) AS n FROM outbound_messages'),
+    q1('SELECT COUNT(*) AS n FROM broadcast_campaigns'),
+    q1('SELECT COUNT(*) AS n FROM consent_log'),
   ]);
-  const stats = await getDialerStats();
-  return { calls, callbacks, recallSchedule: recallRows, followUpQueue: fupRows, engagementStats: engLog, dialerStats: stats };
+
+  // getDeliveryStats() returns [{status, count}] rows — DashboardState wants
+  // a flat { sent: n, delivered: n, ... } map (Overview.tsx reads delivery['sent'] etc).
+  const delivery_stats = {};
+  for (const row of deliveryRows) delivery_stats[row.status] = parseInt(row.count) || 0;
+
+  return {
+    dialer_stats: dialerStats,
+    engagement_stats: engRows.map(r => ({ trigger_type: r.trigger_type, n: parseInt(r.n) || 0 })),
+    pending_callbacks: callbackQueue.length,
+    due_recalls: dueRecalls.length,
+    pending_followups: pendingFollowups.length,
+    messages_sent: parseInt(messagesSentRow?.n || 0),
+    patients_reached: parseInt(patientsReachedRow?.n || 0),
+    broadcasts_sent: parseInt(broadcastsSentRow?.n || 0),
+    delivery_stats,
+    consented_patients: parseInt(consentedRow?.n || 0),
+  };
 }
 
 setup().catch(err => { console.error('[db] setup failed:', err.message); process.exit(1); });
