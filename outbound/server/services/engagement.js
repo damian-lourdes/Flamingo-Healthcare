@@ -253,6 +253,17 @@ async function onIncomingCall({ phone, callerName }) {
   await send(phone, 'call_thankyou', () => wa.sendText(phone, msg), 1, null, callerName, msg);
 }
 
+// Answered call completed — thank-you after the team has actually spoken with the caller
+async function onCallCompleted({ phone, callerName }) {
+  const msg =
+    `Thank you for calling ${H} 🙏\n\n` +
+    `It was our pleasure to assist you. If you have any further questions, our team is always here to help.\n\n` +
+    `📅 Book an appointment: ${BOOK}\n` +
+    `📞 044-2658 2424 / +91 9150565888\n` +
+    `🕐 Mon–Sat: 8:00 AM – 7:00 PM | Emergency: 24/7\n` +
+    `📍 Ambattur, Chennai`;
+  await send(phone, 'call_completed', () => wa.sendText(phone, msg), 1, null, callerName, msg);
+}
 // Missed call — callback follow-up (sent if call was not answered)
 async function onMissedCall({ phone, callerName }) {
   const msg =
@@ -475,4 +486,5 @@ module.exports = {
   onAppointmentRescheduled,
   onAppointmentCancelled,
   onRoomTransfer,
+  onCallCompleted,
 };

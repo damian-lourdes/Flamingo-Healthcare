@@ -191,13 +191,14 @@ async function processCall(rawPayload) {
     return;
   }
 
-  await engagement.onIncomingCall({ phone: normPhone, callerName: caller_name || null });
-
   if (finalStatus === 'missed' || finalStatus === 'no-answer' || finalStatus === 'busy') {
+    // Unanswered — apologise and queue a callback.
     await engagement.onMissedCall({ phone: normPhone, callerName: caller_name || null });
     console.log(`[dialer] Missed call from ${normPhone} — callback queued`);
   } else {
-    console.log(`[dialer] ${status} call logged: ${normPhone}`);
+    // Answered & completed — send the post-call thank-you.
+    await engagement.onCallCompleted({ phone: normPhone, callerName: caller_name || null });
+    console.log(`[dialer] Answered call from ${normPhone} — thank-you sent`);
   }
 }
 
