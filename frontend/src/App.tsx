@@ -50,7 +50,7 @@ export default function App() {
       api.followups(),
       api.followups(),
     ])
-    setCallbackCount(cbs.length)
+    setCallbackCount(cbs?.length ?? 0)
     setFollowUpCount((followups?.length ?? 0) + (fups?.length ?? 0))
   }
 

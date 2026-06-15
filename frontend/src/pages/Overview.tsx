@@ -79,7 +79,7 @@ export function OverviewPage() {
 
         {/* ── Engagement by trigger ── */}
         <Card title="Engagement by trigger" subtitle="All time">
-          {(state?.engagement_stats.length ?? 0) === 0
+          {(state?.engagement_stats?.length ?? 0) === 0
             ? <Empty msg="No messages sent yet" />
             : (
               <table>
@@ -120,7 +120,7 @@ export function OverviewPage() {
 
           {/* Recent calls */}
           <Card title="Recent calls">
-            {calls.length === 0
+            {(calls?.length ?? 0) === 0
               ? <Empty msg="No calls yet" />
               : (
                 <table>
