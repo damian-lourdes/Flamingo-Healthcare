@@ -77,7 +77,10 @@ async function sendTemplate(to, templateName, languageCode, bodyParams = [], boo
   if (bodyParams.length) {
     components.push({
       type: 'body',
-      parameters: bodyParams.map(t => ({ type: 'text', text: String(t) })),
+      parameters: bodyParams.map(t => ({
+      type: 'text',
+      text: String(t ?? '').replace(/\s*\n+\s*/g, ' ').replace(/\s{4,}/g, '   ').trim() || '-',
+    })),
     });
   }
 

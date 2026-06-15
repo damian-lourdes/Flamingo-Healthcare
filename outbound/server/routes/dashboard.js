@@ -91,4 +91,17 @@ router.get('/audit-log', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.get('/settings/:key', async (req, res, next) => {
+  try { res.json({ key: req.params.key, value: await db.getSetting(req.params.key) }); }
+  catch (e) { next(e); }
+});
+
+router.post('/settings/:key', async (req, res, next) => {
+  try {
+    await db.setSetting(req.params.key, req.body.value || '', req.actor || 'dashboard');
+    await db.logAudit({ actor: req.actor || 'dashboard', action: 'update', entity: 'app_settings', entityId: req.params.key, after: { value: req.body.value } });
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

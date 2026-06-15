@@ -222,7 +222,7 @@ async function runMonthlyBroadcast() {
   `, [trigger]);
   if (!patients.length) return;
 
-  const tip = config.monthlyHealthTip;
+  const tip = await db.getSetting('monthly_health_tip', config.monthlyHealthTip);
   let sent = 0, failed = 0;
   for (const p of patients) {
     try {

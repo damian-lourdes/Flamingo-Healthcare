@@ -39,8 +39,9 @@ router.get('/history/:id/messages', async (req, res, next) => {
 // ── Send broadcasts ───────────────────────────────────────────────────────────
 router.post('/health-tip', async (req, res, next) => {
   try {
-    const { recipients, message, campaignName } = req.body;
-    const result = await engagement.sendHealthBroadcast({ recipients, message, campaignName });
+    const { recipients, campaignName } = req.body;
+    const tip = req.body.tip || req.body.message;   // accept old field name too
+    const result = await engagement.sendHealthTip({ recipients, tip, campaignName });
     res.json({ success: true, ...result });
   } catch (e) { next(e); }
 });
@@ -48,7 +49,15 @@ router.post('/health-tip', async (req, res, next) => {
 router.post('/offer', async (req, res, next) => {
   try {
     const { recipients, offerTitle, offerDetails, validTill } = req.body;
-    const result = await engagement.sendOffer({ recipients, offerTitle, offerDetails, validTill });
+    const result = await engagement.sendOfferTemplate({ recipients, offerTitle, offerDetails, validTill });
+    res.json({ success: true, ...result });
+  } catch (e) { next(e); }
+});
+
+router.post('/camp', async (req, res, next) => {
+  try {
+    const { recipients, campType, date, venue, details } = req.body;
+    const result = await engagement.sendCampInfo({ recipients, campType, date, venue, details });
     res.json({ success: true, ...result });
   } catch (e) { next(e); }
 });

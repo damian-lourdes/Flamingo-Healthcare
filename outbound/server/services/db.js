@@ -300,6 +300,13 @@ async function setup() {
     );
 
     -- ── Audit log ─────────────────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT,
+      updated_by TEXT DEFAULT 'system',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS audit_log (
       id           SERIAL PRIMARY KEY,
       actor        TEXT NOT NULL DEFAULT 'system',
@@ -1154,6 +1161,18 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+async function getSetting(key, fallback = null) {
+  const row = await q1('SELECT value FROM app_settings WHERE key=$1', [key]);
+  return row ? row.value : fallback;
+}
+async function setSetting(key, value, actor = 'dashboard') {
+  await pool.query(
+    `INSERT INTO app_settings(key, value, updated_by) VALUES($1,$2,$3)
+     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by, updated_at=NOW()`,
+    [key, value, actor]
+  );
+}
+
 module.exports = {
   pool,  // exported for direct query access in whatsapp.js
   alreadySent, logSent,
@@ -1179,5 +1198,6 @@ module.exports = {
   resolvePatientId,
   // Audit log
   logAudit, getAuditLog,
+  getSetting, setSetting,
   setup,
 };

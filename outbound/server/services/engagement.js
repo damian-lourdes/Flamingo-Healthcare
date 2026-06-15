@@ -355,6 +355,49 @@ async function sendHealthBroadcast({ recipients, message, campaignName }) {
   return { sent, failed, broadcastId };
 }
 
+// Generic template broadcast — paramsFor(name) returns the {{1}},{{2}}… values per recipient
+async function broadcastTemplate({ recipients, templateName, lang = 'en', paramsFor, bookUrl = BOOK, campaignName, logMessage }) {
+  let sent = 0, failed = 0;
+  for (const { phone, name } of recipients) {
+    try {
+      await wa.sendTemplate(phone, templateName, lang, paramsFor(name), bookUrl,
+        { patientName: name, triggerType: 'broadcast' });
+      await db.logSent(phone, `broadcast_${Date.now()}`);
+      await db.logOutboundMessage({ phone, patientName: name, triggerType: 'broadcast', message: logMessage }).catch(() => {});
+      await db.upsertPatient({ phone, name }).catch(() => {});
+      sent++;
+    } catch { failed++; }
+    await new Promise(r => setTimeout(r, 50)); // Meta tier limits still apply
+  }
+  await db.logBroadcast({ name: campaignName || templateName, message: logMessage || templateName, recipientCount: recipients.length, sent, failed }).catch(() => {});
+  console.log(`[broadcast] ${templateName} "${campaignName}" — sent:${sent} failed:${failed}`);
+  return { sent, failed };
+}
+
+async function sendHealthTip({ recipients, tip, campaignName }) {
+  return broadcastTemplate({
+    recipients, templateName: 'monthly_health_tip',
+    paramsFor: (name) => [name || 'there', tip],
+    campaignName: campaignName || 'Health Tip', logMessage: tip,
+  });
+}
+
+async function sendOfferTemplate({ recipients, offerTitle, offerDetails, validTill }) {
+  return broadcastTemplate({
+    recipients, templateName: 'health_package_offer',
+    paramsFor: (name) => [name || 'there', offerTitle, offerDetails, validTill || 'Limited period'],
+    campaignName: offerTitle, logMessage: `${offerTitle}: ${offerDetails}`,
+  });
+}
+
+async function sendCampInfo({ recipients, campType, date, venue, details }) {
+  return broadcastTemplate({
+    recipients, templateName: 'health_camp_info',
+    paramsFor: (name) => [name || 'there', campType, date, venue, details || 'Walk in or pre-register.'],
+    campaignName: `Camp: ${campType}`, logMessage: `${campType} on ${date} at ${venue}`,
+  });
+}
+
 // ── OFFER / PACKAGE MESSAGE ───────────────────────────────────────────────────
 async function sendOffer({ recipients, offerTitle, offerDetails, validTill }) {
   const message =
@@ -487,4 +530,7 @@ module.exports = {
   onAppointmentCancelled,
   onRoomTransfer,
   onCallCompleted,
+  sendHealthTip,
+  sendOfferTemplate,
+  sendCampInfo,
 };
