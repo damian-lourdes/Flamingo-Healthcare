@@ -191,11 +191,17 @@ const getDoctorCalendar = (drKey, date) =>
   get(`/api/calendar/${E()}/${L()}/${drKey}/${date || today()}`);
 
 /**
- * GET /api/get/opvisits/{EntityKey}/{Location}/{Date}
- * Returns OP visits for a given date
+ * POST /api/get/visitdata/{EntityKey}
+ * Returns OP visits for a given date.
+ * Per docs: POST, application/x-www-form-urlencoded, date=YYYYMMDD
+ * (required), entitylocation (optional). Date is a body param, not a URL
+ * path segment, and the path itself is /get/visitdata, not /get/opvisits.
  */
 const getOPVisits = (date) =>
-  get(`/api/get/opvisits/${E()}/${L()}/${date || today()}`);
+  post(`/api/get/visitdata/${E()}`, {
+    date:           date || todayYmd(),
+    entitylocation: L(),
+  });
 
 /**
  * GET /api/get/checkedin/{EntityKey}/{Location}
@@ -207,16 +213,32 @@ const getCheckedIn = () =>
 // ── Inpatient (IP) ────────────────────────────────────────────────────────────
 
 /**
- * GET /api/get/ipadmissions/{EntityKey}/{Location}/{Date}
+ * POST /api/get/ipadmission/{EntityKey}
+ * Per docs: POST, application/x-www-form-urlencoded.
+ * Required: entitykey, entitylocation, date (YYYYMMDD). Optional: drdept.
+ * (Path is singular "ipadmission", not "ipadmissions" — date is a body
+ * param, not a URL path segment.)
  */
 const getIPAdmissions = (date) =>
-  get(`/api/get/ipadmissions/${E()}/${L()}/${date || today()}`);
+  post(`/api/get/ipadmission/${E()}`, {
+    entitykey:      E(),
+    entitylocation: L(),
+    date:           date || todayYmd(),
+  });
 
 /**
- * GET /api/get/ipdischarges/{EntityKey}/{Location}/{Date}
+ * POST /api/get/ipdischarge/{EntityKey}
+ * Per docs: POST, application/x-www-form-urlencoded.
+ * Required: entitykey, entitylocation, date (YYYYMMDD).
+ * (Path is singular "ipdischarge", not "ipdischarges" — date is a body
+ * param, not a URL path segment.)
  */
 const getIPDischarges = (date) =>
-  get(`/api/get/ipdischarges/${E()}/${L()}/${date || today()}`);
+  post(`/api/get/ipdischarge/${E()}`, {
+    entitykey:      E(),
+    entitylocation: L(),
+    date:           date || todayYmd(),
+  });
 
 /**
  * POST /api/get/transferroom/{EntityKey}
@@ -244,22 +266,52 @@ async function createLabOrder({ patientId, tests, doctorKey }) {
 }
 
 /**
- * GET /api/lims/laborders/{EntityKey}/{Location}/{Date}
+ * POST /api/orderlist/{EntityKey}
+ * Returns lab orders for a given date + time window.
+ * Per docs: POST, application/x-www-form-urlencoded.
+ * Required: entitykey, date (YYYYMMDD), starttime, endtime (HH:MM).
+ * No entitylocation param on this endpoint. starttime/endtime default to a
+ * full-day window (00:00–23:59) since our daily sync has no narrower window.
  */
-const getLabOrders = (date) =>
-  get(`/api/lims/laborders/${E()}/${L()}/${date || today()}`);
+const getLabOrders = (date, starttime = '00:00', endtime = '23:59') =>
+  post(`/api/orderlist/${E()}`, {
+    entitykey: E(),
+    date:      date || todayYmd(),
+    starttime,
+    endtime,
+  });
 
 /**
- * GET /api/lims/labresults/{EntityKey}/{Location}/{Date}
+ * POST /api/orderresult/{EntityKey}
+ * Returns test results for a given date + time window.
+ * Per docs: POST, application/x-www-form-urlencoded.
+ * Required: date (YYYYMMDD), starttime, endtime (HH:MM). orderkey optional
+ * (narrows to one specific order). No entitykey/entitylocation body params
+ * on this endpoint — EntityKey only appears in the URL path.
+ * starttime/endtime default to a full-day window since our daily sync has
+ * no narrower window.
  */
-const getLabResults = (date) =>
-  get(`/api/lims/labresults/${E()}/${L()}/${date || today()}`);
+const getLabResults = (date, starttime = '00:00', endtime = '23:59', orderkey) =>
+  post(`/api/orderresult/${E()}`, {
+    date: date || todayYmd(),
+    starttime,
+    endtime,
+    ...(orderkey ? { orderkey } : {}),
+  });
 
 // ── MIS (for analytics / billing data) ───────────────────────────────────────
 
-/** GET /api/mis/bills/{EntityKey}/{Location}/{Date} */
+/** POST /api/get/billlist/{EntityKey}
+ * Returns bill list for a given date.
+ * Per docs: POST, application/x-www-form-urlencoded.
+ * Required: entitykey, date (YYYYMMDD). No entitylocation param on this
+ * endpoint, and date is a body param, not a URL path segment.
+ */
 const getBills = (date) =>
-  get(`/api/mis/bills/${E()}/${L()}/${date || today()}`);
+  post(`/api/get/billlist/${E()}`, {
+    entitykey: E(),
+    date:      date || todayYmd(),
+  });
 
 module.exports = {
   // Helpers
