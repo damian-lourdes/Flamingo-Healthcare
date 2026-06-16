@@ -16,7 +16,7 @@ import type {
 // ── API base URL ─────────────────────────────────────────────────────────────
 // Reads VITE_API_URL from the build env (.env.production), falls back to the
 // known Railway API URL. Every request is prefixed with this in safeFetch.
-const BASE = import.meta.env.VITE_API_URL ?? 'https://flamingo-healthcare-production.up.railway.app'
+const BASE = import.meta.env.VITE_API_URL ?? 'https://outbound-production-5e64.up.railway.app'
 
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'flamingo_token'

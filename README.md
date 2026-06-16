@@ -6,17 +6,22 @@ Integrates MocDoc HMS with Meta WhatsApp Cloud API.
 ## Architecture
 
 ```
-MocDoc HMS ──→ outbound/ (Node.js) ──→ PostgreSQL ──→ api/ (FastAPI) ──→ frontend/ (React)
-                    ↓                                        ↑
-              Meta WhatsApp API                       Dashboard UI
+MocDoc HMS ──→ outbound/ (Node.js) ──→ PostgreSQL
+                    ↓          ↑
+              Meta WhatsApp    └──→ frontend/ (React) — dashboard UI
+                  API
 ```
+
+A single Node.js service (`outbound/`) handles MocDoc webhooks, PBX/dialer
+webhooks, WhatsApp sends, the scheduler, and the dashboard REST API
+(`/api/*`) that the React frontend talks to.
 
 ## Repository structure
 
 ```
 flamingo-healthcare/
-├── outbound/          Node.js — MocDoc polling, WhatsApp sends, webhooks, scheduler
-├── api/               FastAPI (Python) — dashboard REST API
+├── outbound/          Node.js — MocDoc webhooks, dialer webhooks, WhatsApp sends,
+│                       scheduler, and the dashboard REST API (/api/*)
 ├── frontend/          React + Vite + TypeScript — dashboard UI
 ├── scripts/           DB migration and seed scripts
 ├── deploy/            Nginx config, PM2 ecosystem, deploy script
@@ -32,20 +37,13 @@ createdb flamingo
 # 2. Run DB migration
 node scripts/migrate.js
 
-# 3. outbound service
+# 3. outbound service (Node.js + dashboard API)
 cd outbound
 cp ../.env.example .env   # fill in credentials
 npm install
 npm run dev               # port 3000
 
-# 4. FastAPI (separate terminal)
-cd api
-cp ../.env.example .env   # set DATABASE_URL
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# 5. React frontend (separate terminal)
+# 4. React frontend (separate terminal)
 cd frontend
 npm install
 npm run dev               # http://localhost:5173
@@ -81,8 +79,7 @@ ssh root@YOUR_VPS_IP "unzip /root/flamingo-healthcare.zip -d /root/ && bash /roo
 ## PM2 commands
 
 ```bash
-pm2 status                      # check both services
-pm2 logs flamingo-outbound      # WhatsApp + MocDoc activity
-pm2 logs flamingo-api           # API requests
+pm2 status                      # check the service
+pm2 logs flamingo-outbound      # WhatsApp + MocDoc + dashboard API activity
 pm2 restart all                 # restart after code change
 ```

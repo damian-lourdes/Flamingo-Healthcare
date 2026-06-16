@@ -22,7 +22,7 @@ META_ACCESS_TOKEN="your_meta_access_token"
 ADMIN_USERNAME="admin"
 ADMIN_PASSWORD="changeme"     # set a strong password before deploying
 # JWT secret — auto-generated if left empty
-JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || echo "change_this_jwt_secret_$(date +%s)")
+JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "change_this_jwt_secret_$(date +%s)")
 
 # MocDoc (request from MocDoc support — mocdoc.com/api/docs)
 MOCDOC_BASE_URL="https://mocdoc.com"
@@ -56,11 +56,7 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 npm install -g pm2
 
-# ── 3. Python 3.11 ───────────────────────────────────────────────────────────
-log "Installing Python 3.11..."
-apt-get install -y python3.11 python3.11-venv python3-pip
-
-# ── 4. PostgreSQL 15 ─────────────────────────────────────────────────────────
+# ── 3. PostgreSQL 15 ─────────────────────────────────────────────────────────
 log "Installing PostgreSQL 15..."
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
   | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
@@ -70,11 +66,11 @@ echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] \
 apt-get update -qq && apt-get install -y postgresql-15
 systemctl start postgresql && systemctl enable postgresql
 
-# ── 5. Nginx ──────────────────────────────────────────────────────────────────
+# ── 4. Nginx ──────────────────────────────────────────────────────────────────
 log "Installing Nginx..."
 apt-get install -y nginx && systemctl enable nginx
 
-# ── 6. PostgreSQL — DB + user ─────────────────────────────────────────────────
+# ── 5. PostgreSQL — DB + user ─────────────────────────────────────────────────
 log "Creating database..."
 sudo -u postgres psql << SQL
 DO \$\$ BEGIN
@@ -86,7 +82,7 @@ CREATE DATABASE IF NOT EXISTS ${DB_NAME} OWNER ${DB_USER};
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
 SQL
 
-# ── 7. Extract app to /var/www/flamingo ───────────────────────────────────────
+# ── 6. Extract app to /var/www/flamingo ───────────────────────────────────────
 log "Extracting application..."
 mkdir -p ${APP_DIR}/logs
 
@@ -100,7 +96,7 @@ else
   err "flamingo-healthcare.zip not found in /root/"
 fi
 
-# ── 8. Write .env for outbound service ───────────────────────────────────────
+# ── 7. Write .env for outbound service ───────────────────────────────────────
 log "Writing outbound .env..."
 cat > ${APP_DIR}/outbound/.env << ENV
 NODE_ENV=production
@@ -112,6 +108,11 @@ PGPORT=5432
 PGDATABASE=${DB_NAME}
 PGUSER=${DB_USER}
 PGPASSWORD=${DB_PASS}
+
+# Dashboard login
+DASHBOARD_USERNAME=${ADMIN_USERNAME}
+DASHBOARD_PASSWORD=${ADMIN_PASSWORD}
+AUTH_SECRET=${JWT_SECRET}
 
 # Meta WhatsApp Cloud API
 META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
@@ -128,42 +129,24 @@ MOCDOC_POLL_INTERVAL_MS=30000
 LOG_DIR=${APP_DIR}/logs
 ENV
 
-# ── 9. Write .env for FastAPI ─────────────────────────────────────────────────
-log "Writing API .env..."
-cat > ${APP_DIR}/api/.env << ENV
-DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}
-ENVIRONMENT=production
-DEBUG=false
-ENV
-
-# ── 10. Install Node.js dependencies ─────────────────────────────────────────
+# ── 8. Install Node.js dependencies ─────────────────────────────────────────
 log "Installing Node.js dependencies..."
 cd ${APP_DIR}/outbound
 npm install --production --silent
 
-# ── 11. Run DB migration ──────────────────────────────────────────────────────
+# ── 9. Run DB migration ──────────────────────────────────────────────────────
 log "Running database migration..."
 cd ${APP_DIR}
 node scripts/migrate.js && log "Migration complete" || warn "Migration failed — check scripts/migrate.js"
 
-# ── 12. Python venv + install ─────────────────────────────────────────────────
-log "Setting up Python venv..."
-cd ${APP_DIR}/api
-python3.11 -m venv venv
-source venv/bin/activate
-pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
-pip install --quiet gunicorn
-deactivate
-
-# ── 13. Build React frontend ──────────────────────────────────────────────────
+# ── 10. Build React frontend ──────────────────────────────────────────────────
 log "Building React frontend..."
 cd ${APP_DIR}/frontend
 npm install --silent
 npm run build
 log "Frontend built → ${APP_DIR}/frontend/dist/"
 
-# ── 14. Nginx config ──────────────────────────────────────────────────────────
+# ── 11. Nginx config ──────────────────────────────────────────────────────────
 log "Configuring Nginx..."
 cp ${APP_DIR}/deploy/nginx.conf /etc/nginx/sites-available/flamingo
 # Inject domain
@@ -174,7 +157,7 @@ ln -sf /etc/nginx/sites-available/flamingo /etc/nginx/sites-enabled/flamingo
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
-# ── 15. PM2 — start services ──────────────────────────────────────────────────
+# ── 12. PM2 — start services ──────────────────────────────────────────────────
 log "Starting services via PM2..."
 cd ${APP_DIR}
 pm2 start deploy/ecosystem.config.js
@@ -182,7 +165,7 @@ pm2 save
 env PATH=$PATH:/usr/bin pm2 startup systemd -u root --hp /root
 systemctl enable pm2-root 2>/dev/null || true
 
-# ── 16. Firewall ──────────────────────────────────────────────────────────────
+# ── 13. Firewall ──────────────────────────────────────────────────────────────
 log "Configuring firewall..."
 ufw --force reset
 ufw default deny incoming
@@ -192,12 +175,10 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-# ── 17. Health checks ─────────────────────────────────────────────────────────
+# ── 14. Health checks ─────────────────────────────────────────────────────────
 log "Running health checks..."
 sleep 4
-API=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
 NODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
-[[ "$API"  == "200" ]] && log "FastAPI: OK" || warn "FastAPI not responding (${API}) — check: pm2 logs flamingo-api"
 [[ "$NODE" == "200" ]] && log "outbound: OK" || warn "outbound not responding (${NODE}) — check: pm2 logs flamingo-outbound"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
@@ -205,7 +186,6 @@ echo ""
 log "=== Deployment complete ==="
 echo ""
 echo "  Dashboard:     http://${DOMAIN}"
-echo "  API docs:      http://${DOMAIN}/api/docs"
 echo "  Health:        http://${DOMAIN}/health"
 echo ""
 echo "  pm2 status     — check services"
