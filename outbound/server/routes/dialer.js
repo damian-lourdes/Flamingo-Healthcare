@@ -37,6 +37,10 @@ function normalisePayload(body) {
       duration_sec:parseInt(body.RecordingDuration || body.Duration || body.ConversationDuration || 0),
       agent:       body.To          || body.CallTo || null,
       ref_id:      body.CallSid     || null,
+      // Exotel includes the recording URL on the call-completion callback once
+      // the recording has finished processing — it's absent on the initial
+      // call-attempt event and gets added when that event upgrades the row.
+      recording_url: body.RecordingUrl || null,
     };
   }
 
@@ -146,6 +150,7 @@ router.get('/call', async (req, res) => {
       Duration:   d.DialCallDuration,
       To:         d.CallTo || d.To,
       CallType:   d.CallType,
+      RecordingUrl: d.RecordingUrl,
     };
     console.log(`[dialer] Exotel GET: ${d.CallType} from ${d.CallFrom || d.From}`);
     // Process every event — call-attempt logs the incoming call immediately
@@ -160,7 +165,7 @@ router.get('/call', async (req, res) => {
 // ── Shared call processor ─────────────────────────────────────────────────────
 async function processCall(rawPayload) {
   const payload = normalisePayload(rawPayload);
-  const { phone, caller_name, duration_sec, status, agent, ref_id } = payload;
+  const { phone, caller_name, duration_sec, status, agent, ref_id, recording_url } = payload;
 
   if (!phone) {
     console.warn('[dialer] No phone number in payload:', rawPayload);
@@ -179,6 +184,7 @@ async function processCall(rawPayload) {
     agent:       agent  || null,
     notes:       ref_id ? `ref:${ref_id}` : null,
     refId:       ref_id || null,
+    recordingUrl: recording_url || null,
   });
 
   if (finalStatus === 'received') {

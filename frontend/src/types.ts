@@ -49,6 +49,7 @@ export interface CallRecord {
   status: string
   agent: string | null
   notes: string | null
+  recording_url: string | null
   called_at: string | null
 }
 

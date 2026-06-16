@@ -48,6 +48,11 @@ module.exports = {
   },
 
   onCallNumber: process.env.ON_CALL_NUMBER || null,
+  // Used to build the StatusCallback URL for Exotel outbound calls (e.g.
+  // https://outbound-production-xxxx.up.railway.app) — without this, Exotel
+  // has nowhere to send the completion/recording webhook for a call we
+  // initiate via the Connect API.
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
   exotel: {
     sid:        process.env.EXOTEL_SID || '',
     apiKey:     process.env.EXOTEL_API_KEY || '',

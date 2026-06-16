@@ -106,6 +106,7 @@ export function LeadsPage() {
                   <div key={i} style={{ padding:'7px 0', borderTop:'1px solid var(--border)' }}>
                     <div style={{ fontSize:13 }}>{t.label}</div>
                     {t.text && <div style={{ fontSize:11.5, color:'var(--text3)', marginTop:2 }}>{String(t.text).slice(0,120)}</div>}
+                    {t.recordingUrl && <audio controls preload="none" style={{ height:26, width:200, marginTop:4 }} src={t.recordingUrl} />}
                     <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>{fmt(t.at)}</div>
                   </div>
                 ))}

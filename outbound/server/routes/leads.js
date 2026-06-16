@@ -21,11 +21,11 @@ router.get('/:phone', async (req, res, next) => {
     const phone = req.params.phone;
     const lead = (await q(`SELECT * FROM patient_profiles WHERE phone=$1`, [phone]))[0] || null;
     const calls = await q(
-      `SELECT status, agent, called_at AS at FROM dialer_calls WHERE phone=$1 ORDER BY called_at DESC LIMIT 30`, [phone]);
+      `SELECT status, agent, called_at AS at, recording_url FROM dialer_calls WHERE phone=$1 ORDER BY called_at DESC LIMIT 30`, [phone]);
     const msgs = await q(
       `SELECT trigger_type, message, sent_at AS at FROM outbound_messages WHERE phone=$1 ORDER BY sent_at DESC LIMIT 30`, [phone]);
     const timeline = [
-      ...calls.map(c => ({ kind: 'call', label: `Call · ${c.status || 'logged'}${c.agent ? ' · ' + c.agent : ''}`, at: c.at })),
+      ...calls.map(c => ({ kind: 'call', label: `Call · ${c.status || 'logged'}${c.agent ? ' · ' + c.agent : ''}`, at: c.at, recordingUrl: c.recording_url || null })),
       ...msgs.map(m => ({ kind: 'message', label: `WhatsApp${m.trigger_type ? ' · ' + m.trigger_type : ''}`, at: m.at, text: m.message })),
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     res.json({ lead, timeline });
@@ -71,12 +71,34 @@ router.post('/:phone/call', async (req, res, next) => {
         message: 'Exotel outbound not configured. Set EXOTEL_SID, EXOTEL_API_KEY, EXOTEL_API_TOKEN, EXOTEL_SUBDOMAIN, EXOTEL_CALLER_ID and an agent number.' });
     }
     const url = `https://${c.subdomain}/v1/Accounts/${c.sid}/Calls/connect.json`;
-    const body = new URLSearchParams({ From: agent, To: to, CallerId: c.callerId, CallType: 'trans' });
+    const params = {
+      From: agent, To: to, CallerId: c.callerId, CallType: 'trans',
+      // Recording is opt-in per call — without these, Exotel won't record
+      // at all and there will never be a RecordingUrl to capture.
+      Record: 'true', RecordingChannels: 'dual', RecordingFormat: 'mp3',
+    };
+    // Point Exotel's completion webhook back at our existing /dialer/call
+    // route, so the same processCall() path that handles inbound calls also
+    // picks up this outbound call's status + recording URl once it ends.
+    if (config.publicBaseUrl) {
+      params.StatusCallback = `${config.publicBaseUrl}/dialer/call`;
+      params['StatusCallbackEvents[0]'] = 'terminal';
+      params.StatusCallbackContentType = 'application/json';
+    }
+    const body = new URLSearchParams(params);
     const auth = Buffer.from(`${c.apiKey}:${c.apiToken}`).toString('base64');
     const r = await fetch(url, { method: 'POST', headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body });
     const data = await r.json().catch(() => ({}));
-    await db.logCall({ phone: to, status: 'initiated', agent }).catch(() => {});
-    res.json({ success: r.ok, message: r.ok ? 'Calling — your phone will ring first, then connect to the lead.' : 'Exotel rejected the call.', exotel: data });
+    // Capture the CallSid Exotel returns so the eventual status-callback
+    // webhook (which carries the recording URL once the call finishes) can
+    // be matched back to this same row via ref_id, the same upsert pattern
+    // used for inbound calls.
+    const callSid = data?.Call?.Sid || null;
+    await db.logCall({ phone: to, status: 'initiated', agent, refId: callSid }).catch(() => {});
+    const warning = !config.publicBaseUrl
+      ? ' (PUBLIC_BASE_URL is not set — recording and completion status will not be captured for this call.)'
+      : '';
+    res.json({ success: r.ok, message: (r.ok ? 'Calling — your phone will ring first, then connect to the lead.' : 'Exotel rejected the call.') + warning, exotel: data });
   } catch (e) { next(e); }
 });
 

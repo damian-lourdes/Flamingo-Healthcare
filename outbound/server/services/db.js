@@ -47,8 +47,10 @@ async function setup() {
       status       TEXT NOT NULL,   -- answered | missed | abandoned
       agent        TEXT,
       notes        TEXT,
+      recording_url TEXT,
       called_at    TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS recording_url TEXT;
     -- Dialer: callback queue (missed calls waiting to be called back)
     CREATE TABLE IF NOT EXISTS callback_queue (
       id          SERIAL PRIMARY KEY,
@@ -659,7 +661,7 @@ const markNoShowRecovered = id =>
   pool.query("UPDATE follow_up_queue SET status='recovered' WHERE id=$1",[id]);
 
 // ── Dialer ────────────────────────────────────────────────────────────────────
-async function logCall({phone, callerName, durationSec, status, agent, notes, refId}) {
+async function logCall({phone, callerName, durationSec, status, agent, notes, refId, recordingUrl}) {
   let id;
 
   // Link to an existing patient record if this number is already a known patient.
@@ -670,7 +672,9 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
   // If we have a ref_id (e.g. Exotel CallSid) and a row already exists for it,
   // update that row in place rather than inserting a duplicate — this lets the
   // initial "call-attempt" event (incoming call received) get upgraded by a
-  // later completion event (answered/missed) for the same call.
+  // later completion event (answered/missed) for the same call. Recordings in
+  // particular only become available on a later event, since Exotel can't know
+  // the recording URL until the call (and thus the recording) has finished.
   if (refId) {
     const existing = await pool.query(
       'SELECT id FROM dialer_calls WHERE ref_id=$1 ORDER BY id DESC LIMIT 1',
@@ -680,23 +684,24 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
       id = existing.rows[0].id;
       await pool.query(
         `UPDATE dialer_calls SET
-           status       = $1,
-           duration_sec = COALESCE($2, duration_sec),
-           agent        = COALESCE($3, agent),
-           notes        = COALESCE($4, notes),
-           caller_name  = COALESCE($5, caller_name),
-           patient_id   = COALESCE($6, patient_id),
-           updated_at   = NOW()
-         WHERE id=$7`,
-        [status, durationSec||null, agent||null, notes||null, callerName||null, patientId, id]
+           status        = $1,
+           duration_sec  = COALESCE($2, duration_sec),
+           agent         = COALESCE($3, agent),
+           notes         = COALESCE($4, notes),
+           caller_name   = COALESCE($5, caller_name),
+           patient_id    = COALESCE($6, patient_id),
+           recording_url = COALESCE($7, recording_url),
+           updated_at    = NOW()
+         WHERE id=$8`,
+        [status, durationSec||null, agent||null, notes||null, callerName||null, patientId, recordingUrl||null, id]
       );
     }
   }
 
   if (!id) {
     const res = await pool.query(
-      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id,patient_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
-      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null, patientId]
+      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id,patient_id,recording_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
+      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null, patientId, recordingUrl||null]
     );
     id = res.rows[0].id;
   }

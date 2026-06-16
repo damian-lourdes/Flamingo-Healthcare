@@ -117,7 +117,7 @@ export function DialerPage() {
               : (
                 <table>
                   <thead>
-                    <tr><th>Phone</th><th>Name</th><th>Status</th><th>Duration</th><th>When</th></tr>
+                    <tr><th>Phone</th><th>Name</th><th>Status</th><th>Duration</th><th>When</th><th>Recording</th></tr>
                   </thead>
                   <tbody>
                     {calls.slice(0, 100).map(c => (
@@ -127,6 +127,11 @@ export function DialerPage() {
                         <td><CallBadge status={c.status} /></td>
                         <td><Mono>{c.duration_sec ? `${c.duration_sec}s` : '—'}</Mono></td>
                         <td><Mono>{ago(c.called_at)}</Mono></td>
+                        <td>
+                          {c.recording_url
+                            ? <audio controls preload="none" style={{ height: 28, width: 180 }} src={c.recording_url} />
+                            : <span style={{ color: 'var(--text3)' }}>—</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
