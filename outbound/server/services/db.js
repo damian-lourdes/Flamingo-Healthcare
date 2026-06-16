@@ -1297,7 +1297,7 @@ async function tagLead({ phone, name, source, referredBy = null, status = 'new',
                               THEN patient_profiles.lifecycle_stage ELSE 'lead' END,
        lead_status = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
                           THEN patient_profiles.lead_status ELSE COALESCE(patient_profiles.lead_status, $7) END`,
-    [phone, name || null, source, source, referredBy, onlyIfNew, status]);
+    [phone, name || null, status, source, referredBy, onlyIfNew, status]);
 }
 async function convertLead({ phone }) {
   await pool.query(`UPDATE patient_profiles SET lifecycle_stage='patient', lead_status='converted' WHERE phone=$1`, [phone]);
