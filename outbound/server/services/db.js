@@ -106,6 +106,14 @@ async function setup() {
     );
 
     -- Migrate existing patient_profiles if columns missing (safe on re-run)
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lifecycle_stage TEXT DEFAULT 'patient';
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_status     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_source     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS referred_by     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS assigned_to     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS next_action_at  TIMESTAMPTZ;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_notes      TEXT;
+    CREATE INDEX IF NOT EXISTS idx_pp_lead ON patient_profiles(lifecycle_stage, lead_status, next_action_at);
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lname          TEXT;
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS title          TEXT;
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS phid           TEXT;
@@ -1272,5 +1280,25 @@ module.exports = {
   // Audit log
   logAudit, getAuditLog,
   getSetting, setSetting,
+  tagLead, convertLead,
   setup,
 };
+
+// ── Lead / CRM helpers ────────────────────────────────────────────────────────
+async function tagLead({ phone, name, source, referredBy = null, status = 'new', onlyIfNew = false }) {
+  await pool.query(
+    `INSERT INTO patient_profiles (phone, name, lifecycle_stage, lead_status, lead_source, referred_by)
+     VALUES ($1, $2, 'lead', $3, $4, $5)
+     ON CONFLICT (phone) DO UPDATE SET
+       name        = COALESCE(patient_profiles.name, EXCLUDED.name),
+       lead_source = COALESCE(patient_profiles.lead_source, EXCLUDED.lead_source),
+       referred_by = COALESCE(patient_profiles.referred_by, EXCLUDED.referred_by),
+       lifecycle_stage = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
+                              THEN patient_profiles.lifecycle_stage ELSE 'lead' END,
+       lead_status = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
+                          THEN patient_profiles.lead_status ELSE COALESCE(patient_profiles.lead_status, $7) END`,
+    [phone, name || null, source, source, referredBy, onlyIfNew, status]);
+}
+async function convertLead({ phone }) {
+  await pool.query(`UPDATE patient_profiles SET lifecycle_stage='patient', lead_status='converted' WHERE phone=$1`, [phone]);
+}

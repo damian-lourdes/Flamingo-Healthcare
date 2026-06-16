@@ -60,6 +60,7 @@ async function syncOPVisits(date) {
       seen.visits.add(`b_${id}`);
       await engagement.onAppointmentBooked({ phone, name, doctor, specialty: spec, datetime: dt });
       await db.scheduleRecall({ phone, name, specialty: spec, daysFromNow: 30 }).catch(() => {});
+      await db.convertLead({ phone }).catch(() => {});
     }
 
     // Completed → post-consultation message
@@ -100,6 +101,7 @@ async function syncNewPatients(date) {
     if (!isNew) continue;
 
     await engagement.onEnquiry({ phone, name });
+    await db.tagLead({ phone, name, source: 'walkin', referredBy: p.referred_by || p.referredby || null }).catch(() => {});
     console.log(`[sync] Welcome sent to new patient: ${name} (${phone})`);
   }
 }

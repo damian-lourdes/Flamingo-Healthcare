@@ -169,6 +169,7 @@ async function processCall(rawPayload) {
 
   const normPhone = normalisePhone(phone);
   const finalStatus = (status || 'answered').toLowerCase();
+  await db.tagLead({ phone: normPhone, name: caller_name || null, source: 'call', onlyIfNew: true }).catch(() => {});
 
   await db.logCall({
     phone:       normPhone,

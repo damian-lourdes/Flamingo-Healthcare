@@ -8,6 +8,7 @@ import { FollowUpsPage }      from './pages/Recalls'
 import { BroadcastPage }    from './pages/Broadcast'
 import { PersonalisedPage } from './pages/Personalised'
 import { AutomationsPage }  from './pages/Automations'
+import { LeadsPage }       from './pages/Leads'
 import {
   api, getStatus, onStatusChange, onAuthChange,
   isLoggedIn, getUser, clearAuth,
@@ -22,6 +23,7 @@ const PAGE_META: Record<Page, [string, string]> = {
   followups:     ['Follow Ups',           'Due followups & no-show recovery'],
   broadcast:   ['Campaigns',         'Health tips, offers, packages'],
   personalised:['Personalised',      'Birthday, anniversary, custom messages'],
+  leads:       ['Leads', 'Lead pipeline & enquiry tracking'],
   automations: ['Message Templates', 'Every outgoing WhatsApp message — full library'],
 }
 
@@ -116,6 +118,7 @@ export default function App() {
           {page === 'broadcast'    && <BroadcastPage />}
           {page === 'personalised' && <PersonalisedPage />}
           {page === 'automations'  && <AutomationsPage />}
+          {page === 'leads'        && <LeadsPage />}
         </div>
       </div>
     </div>

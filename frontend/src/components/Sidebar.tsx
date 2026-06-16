@@ -52,6 +52,7 @@ export function Sidebar({ current, onChange, callbackCount, followupCount, usern
 
         <div className="nav-section">Reference</div>
         {item('automations', 'Message Templates')}
+        {item('leads', 'Leads')}
       </nav>
 
       {/* User + logout */}

@@ -137,3 +137,4 @@ export type Page =
   | 'broadcast'
   | 'personalised'
   | 'automations'
+  | 'leads'

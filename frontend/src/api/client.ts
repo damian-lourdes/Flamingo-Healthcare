@@ -153,6 +153,9 @@ export const api = {
     post<BroadcastSendResult>('/api/broadcast/camp', body),
   getSetting:      (key: string) => get<{key: string; value: string | null}>('/api/dashboard/settings/' + key, { key, value: null }),
   setSetting:      (key: string, value: string) => post<SuccessResponse>('/api/dashboard/settings/' + key, { value }),
+  listLeads:       () => get<any[]>('/api/leads', []),
+  addLead:         (body: {name:string; phone:string; source:string; referredBy?:string; assignedTo?:string; nextActionAt?:string; notes?:string}) => post<SuccessResponse>('/api/leads', body),
+  moveLead:        (phone: string, body: {status:string; assignedTo?:string; nextActionAt?:string}) => post<SuccessResponse>('/api/leads/' + phone + '/stage', body),
 
   // Engagement
   postConsultation: (body: {phone: string; name: string; doctor: string; specialty: string; follow_up_date?: string}) =>

@@ -82,6 +82,7 @@ app.use('/api/dashboard',  requireAuth, dashboardRoutes); // alias: frontend cal
 app.use('/api/dialer',     dialerRoutes);                 // alias: frontend calls /api/dialer/*
 app.use('/api/engagement', requireAuth, engagementRoutes);
 app.use('/api/broadcast',  requireAuth, broadcastRoutes);
+app.use('/api/leads',      requireAuth, require('./routes/leads'));
 app.use('/api/scheduler',  requireAuth, schedulerRoutes);
 
 // Blanket fallback for the original (non-aliased) dashboard paths, e.g.
