@@ -45,6 +45,7 @@ export function Sidebar({ current, onChange, callbackCount, followupCount, usern
         <div className="nav-section">Engagement</div>
         {item('dialer', 'Dialer', { count: callbackCount, color: 'red' })}
         {item('followups', 'Follow Ups', { count: followupCount, color: 'amber' })}
+        {item('leads', 'Leads')}
 
         <div className="nav-section">Broadcast</div>
         {item('broadcast', 'Campaigns')}
@@ -52,7 +53,6 @@ export function Sidebar({ current, onChange, callbackCount, followupCount, usern
 
         <div className="nav-section">Reference</div>
         {item('automations', 'Message Templates')}
-        {item('leads', 'Leads')}
       </nav>
 
       {/* User + logout */}
