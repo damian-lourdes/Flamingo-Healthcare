@@ -48,6 +48,14 @@ module.exports = {
   },
 
   onCallNumber: process.env.ON_CALL_NUMBER || null,
+  exotel: {
+    sid:        process.env.EXOTEL_SID || '',
+    apiKey:     process.env.EXOTEL_API_KEY || '',
+    apiToken:   process.env.EXOTEL_API_TOKEN || '',
+    subdomain:  process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com',
+    callerId:   process.env.EXOTEL_CALLER_ID || '',
+    agentNumber:process.env.EXOTEL_AGENT_NUMBER || '',
+  },
 
   monthlyHealthTip: process.env.MONTHLY_HEALTH_TIP ||
     'Stay hydrated, aim for 30 minutes of activity daily, and don\'t skip your routine check-ups.',

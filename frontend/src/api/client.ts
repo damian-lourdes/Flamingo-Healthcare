@@ -156,6 +156,8 @@ export const api = {
   listLeads:       () => get<any[]>('/api/leads', []),
   addLead:         (body: {name:string; phone:string; source:string; referredBy?:string; assignedTo?:string; nextActionAt?:string; notes?:string}) => post<SuccessResponse>('/api/leads', body),
   moveLead:        (phone: string, body: {status:string; assignedTo?:string; nextActionAt?:string}) => post<SuccessResponse>('/api/leads/' + phone + '/stage', body),
+  leadDetail:      (phone: string) => get<{lead:any; timeline:any[]}>('/api/leads/' + phone, { lead:null, timeline:[] }),
+  callLead:        (phone: string) => post<any>('/api/leads/' + phone + '/call', {}),
 
   // Engagement
   postConsultation: (body: {phone: string; name: string; doctor: string; specialty: string; follow_up_date?: string}) =>
