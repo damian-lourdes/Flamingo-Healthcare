@@ -119,11 +119,17 @@ async function updatePatient(phid, fields) {
 }
 
 /**
- * GET /api/get/ptlist/{EntityKey}
- * Returns registered patients for a given date
+ * POST /api/get/ptlist/{EntityKey}
+ * Returns registered patients for a given date.
+ * Per docs: POST, application/x-www-form-urlencoded, registrationdate=YYYYMMDD
+ * (required), entitylocation (optional). Date is a body param, not a URL
+ * path segment — this was the cause of persistent 404s.
  */
 async function getPatientsByDate(date) {
-  return get(`/api/get/ptlist/${E()}/${date || today()}`);
+  return post(`/api/get/ptlist/${E()}`, {
+    registrationdate: date || todayYmd(),
+    entitylocation:   L(),
+  });
 }
 
 /**
