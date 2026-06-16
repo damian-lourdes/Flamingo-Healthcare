@@ -318,6 +318,29 @@ async function setup() {
       created_at   TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entity_id, created_at DESC);
+
+    -- ── Delayed message queue ────────────────────────────────────────────────
+    -- Durable replacement for in-process setTimeout() scheduling. A row here
+    -- means "send this message at/after due_at". A periodic scan (piggybacked
+    -- on the existing 60s MocDoc sync interval) picks up anything due and
+    -- marks it sent — so a server restart between scheduling and the due time
+    -- no longer silently drops the message (which setTimeout() would).
+    -- Used today for: IP Day 2 feedback (~24h after admission), 3-day
+    -- post-discharge check (~72h after discharge).
+    CREATE TABLE IF NOT EXISTS delayed_message_queue (
+      id           SERIAL PRIMARY KEY,
+      message_type TEXT NOT NULL,           -- e.g. 'ip_day2', 'post_discharge'
+      phone        TEXT NOT NULL,
+      patient_id   INTEGER REFERENCES patient_profiles(id),
+      payload      JSONB NOT NULL,          -- args needed to send (patientName, doctor, specialty, admissionId, etc.)
+      due_at       TIMESTAMPTZ NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | failed
+      created_by   TEXT DEFAULT 'mocdoc-sync',
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      sent_at      TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_dmq_due ON delayed_message_queue(status, due_at);
+    COMMENT ON TABLE delayed_message_queue IS 'Durable queue for messages that must be sent some fixed delay after an event (IP Day 2 feedback, post-discharge check). Replaces fragile in-process setTimeout() scheduling that loses pending sends on server restart.';
     CREATE INDEX IF NOT EXISTS idx_audit_actor  ON audit_log(actor, created_at DESC);
 
     -- ── patient_profiles: surrogate key already exists (id) — add doctor/specialty FKs
@@ -584,6 +607,30 @@ const getPendingRecalls = () =>
 
 const markRecallSent = id =>
   pool.query("UPDATE recall_schedule SET status='sent' WHERE id=$1",[id]);
+
+// ── Delayed message queue (durable replacement for setTimeout scheduling) ─────
+async function scheduleDelayedMessage({ messageType, phone, payload, dueAt }) {
+  const patientId = await resolvePatientId(phone);
+  return pool.query(
+    `INSERT INTO delayed_message_queue(message_type, phone, patient_id, payload, due_at)
+     VALUES($1,$2,$3,$4,$5)`,
+    [messageType, phone, patientId, JSON.stringify(payload), dueAt]
+  ).catch(() => {});
+}
+
+const getDueDelayedMessages = (messageType) =>
+  q(
+    `SELECT * FROM delayed_message_queue
+     WHERE status='pending' AND due_at<=NOW() AND message_type=$1
+     ORDER BY due_at ASC`,
+    [messageType]
+  );
+
+const markDelayedMessageSent = id =>
+  pool.query("UPDATE delayed_message_queue SET status='sent', sent_at=NOW() WHERE id=$1", [id]);
+
+const markDelayedMessageFailed = id =>
+  pool.query("UPDATE delayed_message_queue SET status='failed', sent_at=NOW() WHERE id=$1", [id]);
 
 // ── Follow-up queue ───────────────────────────────────────────────────────────
 async function addNoShow({phone,name,doctor,specialty,originalDt}) {
@@ -1202,6 +1249,7 @@ module.exports = {
   pool,  // exported for direct query access in whatsapp.js
   alreadySent, logSent,
   scheduleRecall, getDueRecalls, getPendingRecalls, markRecallSent,
+  scheduleDelayedMessage, getDueDelayedMessages, markDelayedMessageSent, markDelayedMessageFailed,
   addNoShow, getPendingNoShows, markNoShowRecovered,
   logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
   listState,

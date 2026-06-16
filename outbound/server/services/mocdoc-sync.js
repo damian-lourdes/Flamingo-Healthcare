@@ -132,17 +132,18 @@ async function syncIPAdmissions(date) {
       });
     }
 
-    // Schedule Day 2 feedback (20-28 hours from now)
+    // Schedule Day 2 feedback (~24h from now) — stored durably so a server
+    // restart between now and the due time doesn't silently drop it (a
+    // setTimeout() here would be lost on restart with no record it was owed).
     const admitTime = new Date(a.admitted_at || a.admission_date || Date.now());
-    const day2Delay = (admitTime.getTime() + 24 * 60 * 60 * 1000) - Date.now();
-    if (day2Delay > 0 && targetPhone) {
-      setTimeout(async () => {
-        await engagement.onIPDay2({
-          attenderPhone: targetPhone,
-          patientName:   name,
-          admissionId:   id,
-        }).catch(() => {});
-      }, Math.max(day2Delay, 60000)); // minimum 1 minute for testing
+    const day2DueAt = new Date(admitTime.getTime() + 24 * 60 * 60 * 1000);
+    if (targetPhone) {
+      await db.scheduleDelayedMessage({
+        messageType: 'ip_day2',
+        phone: targetPhone,
+        payload: { attenderPhone: targetPhone, patientName: name, admissionId: id },
+        dueAt: day2DueAt,
+      });
     }
   }
 }
@@ -165,13 +166,15 @@ async function syncIPDischarges(date) {
 
     await engagement.onDischarge({ phone, patientName: name, doctor, specialty: spec, admissionId: id });
 
-    // Schedule 3-day post-discharge check
-    const threedays = 3 * 24 * 60 * 60 * 1000;
-    setTimeout(async () => {
-      await engagement.onPostDischarge({
-        phone, patientName: name, doctor, specialty: spec, admissionId: id,
-      }).catch(() => {});
-    }, threedays);
+    // Schedule 3-day post-discharge check — stored durably for the same
+    // restart-safety reason as the IP Day 2 message above.
+    const postDischargeDueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    await db.scheduleDelayedMessage({
+      messageType: 'post_discharge',
+      phone,
+      payload: { phone, patientName: name, doctor, specialty: spec, admissionId: id },
+      dueAt: postDischargeDueAt,
+    });
 
     // Schedule 30-day recall
     await db.scheduleRecall({ phone, name, specialty: spec, daysFromNow: 30 }).catch(() => {});
@@ -281,6 +284,33 @@ async function syncOPBills(date) {
 }
 
 // ── Main sync — runs all seven pollers ────────────────────────────────────────
+// ── Process durable delayed-message queue ─────────────────────────────────────
+// Picks up anything due from delayed_message_queue (IP Day 2, post-discharge)
+// and sends it. Runs as part of the same 60s sync loop, so timing precision
+// matches the existing IP admission/discharge polling — a message becomes
+// "due" sometime in the prior minute and gets picked up on the next tick.
+async function processDelayedMessages() {
+  const handlers = {
+    ip_day2:        (p) => engagement.onIPDay2(p),
+    post_discharge: (p) => engagement.onPostDischarge(p),
+  };
+
+  for (const messageType of Object.keys(handlers)) {
+    const due = await db.getDueDelayedMessages(messageType);
+    for (const row of due) {
+      try {
+        const payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+        await handlers[messageType](payload);
+        await db.markDelayedMessageSent(row.id);
+      } catch (err) {
+        console.error(`[sync] delayed message ${messageType} (id ${row.id}) failed:`, err.message);
+        await db.markDelayedMessageFailed(row.id).catch(() => {});
+      }
+    }
+    if (due.length) console.log(`[sync] Delayed messages (${messageType}): ${due.length} sent`);
+  }
+}
+
 async function sync() {
   const date = mocdoc.today();
   console.log(`[sync] Running — ${date}`);
@@ -297,6 +327,7 @@ async function sync() {
     ['Lab orders',    () => syncLabOrders(date)],     // No webhook available
     ['Lab results',   () => syncLabResults(date)],    // No webhook available
     ['Room transfers', () => syncRoomTransfers()],    // No webhook — pull /api/get/transferroom
+    ['Delayed messages', () => processDelayedMessages()], // IP Day 2 / post-discharge — durable queue
     // OP visits & bills now covered by Check In/Out + OP Bill webhooks
     // ['OP visits',  () => syncOPVisits(date)],      // Replaced by webhooks
     // ['OP bills',   () => syncOPBills(date)],       // Replaced by webhooks
@@ -378,4 +409,4 @@ async function handleWebhook(event, data) {
   }
 }
 
-module.exports = { start, handleWebhook };
+module.exports = { start, handleWebhook, sync, processDelayedMessages };
