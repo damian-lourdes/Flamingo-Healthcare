@@ -34,6 +34,41 @@ const TEMPLATES: Template[] = [
     message: <>Reminder: Your appointment is in 2 hours ⏰<br/><br/>👨‍⚕️ <em>[Doctor]</em><br/>📅 <em>[Time]</em><br/>📍 Flamingo Healthcare, Ambattur<br/>📞 044-2658 2424<br/><br/>Please arrive 10 minutes early.</>
   },
   {
+    title: '🔁 Appointment rescheduled', trigger: 'MocDoc Appointment Reschedule webhook',
+    color: 'var(--teal)', headerClass: 'tpl-head',
+    badge: { label: 'Live', variant: 'green' },
+    desc: 'Sent immediately when an appointment is rescheduled in MocDoc.',
+    message: <>Your appointment has been rescheduled ✅<br/><br/>👤 <em>[Patient]</em><br/>👨‍⚕️ <em>[Doctor]</em><br/>🏥 <em>[Specialty]</em><br/>📅 New time: <em>[New date &amp; time]</em><br/>📍 Flamingo Healthcare, Ambattur<br/><br/>📋 Please carry Photo ID and previous reports.<br/>To reschedule or cancel: 044-2658 2424</>
+  },
+  {
+    title: '❌ Appointment cancelled', trigger: 'MocDoc Appointment Cancellation webhook',
+    color: 'var(--teal)', headerClass: 'tpl-head',
+    badge: { label: 'Live', variant: 'green' },
+    desc: 'Sent immediately when an appointment is cancelled. Tone adjusts depending on whether the hospital or the patient cancelled.',
+    message: <>If cancelled by the patient:<br/>Your appointment with <em>[Doctor]</em> at Flamingo Healthcare has been cancelled.<br/>📅 Was scheduled: <em>[Date &amp; time]</em><br/>Whenever you are ready, we are here for you.<br/>📅 Book again: flamingohealthcare.in<br/><br/>If cancelled by the hospital:<br/>We regret to inform you that your appointment with <em>[Doctor]</em> has been cancelled.<br/>📝 Reason: <em>[Reason]</em><br/>We sincerely apologise for the inconvenience.<br/>📅 Please rebook: flamingohealthcare.in</>
+  },
+  {
+    title: '🎫 Checked in — token number', trigger: 'MocDoc Check In webhook',
+    color: 'var(--teal)', headerClass: 'tpl-head',
+    badge: { label: 'Live', variant: 'green' },
+    desc: 'Sent the moment a patient checks in at reception, with their queue token if one was issued.',
+    message: <>Welcome to Flamingo Healthcare, <em>[Patient]</em>! 🙏<br/><br/>You have checked in with <em>[Doctor]</em> (<em>[Specialty]</em>).<br/>🎫 Your token number: <em>[Token]</em><br/><br/>Please wait — you will be called shortly.<br/>📞 044-2658 2424</>
+  },
+  {
+    title: '🧾 OP bill created', trigger: 'MocDoc OP Bill Creation webhook',
+    color: 'var(--teal)', headerClass: 'tpl-head',
+    badge: { label: 'Live', variant: 'green' },
+    desc: 'Sent when an OP bill is raised in MocDoc. Skipped automatically if the bill has no phone number on file.',
+    message: <>Your bill is ready at Flamingo Healthcare 🧾<br/><br/>📋 Bill No: <em>[Bill number]</em><br/>👨‍⚕️ Consultant: <em>[Doctor]</em><br/>📝 Services: <em>[Item list]</em><br/>💰 Amount Payable: <em>[Amount]</em><br/>✅ Amount Received: <em>[Amount]</em><br/>💳 Payment: <em>[Payment type]</em><br/><br/>For queries: 044-2658 2424</>
+  },
+  {
+    title: '🧾 OP bill cancelled', trigger: 'MocDoc OP Bill Cancellation webhook',
+    color: 'var(--teal)', headerClass: 'tpl-head',
+    badge: { label: 'Live', variant: 'green' },
+    desc: 'Sent when an OP bill is cancelled in MocDoc. Skipped automatically if the bill has no phone number on file.',
+    message: <>Your bill has been cancelled at Flamingo Healthcare 🧾<br/><br/>📋 Bill No: <em>[Bill number]</em><br/>💰 Bill Amount: <em>[Amount]</em><br/>📝 Reason: <em>[Reason]</em><br/><br/>If you have already made a payment, please contact us for a refund.<br/>📞 044-2658 2424</>
+  },
+  {
     title: '🙏 After OP consultation', trigger: 'MocDoc appointment status → Completed',
     color: 'var(--teal)', headerClass: 'tpl-head',
     badge: { label: 'Live', variant: 'green' },
@@ -87,7 +122,7 @@ const TEMPLATES: Template[] = [
     color: 'var(--amber)', headerClass: 'tpl-head-amber',
     badge: { label: 'Automated', variant: 'amber' },
     desc: 'Sent within 30 minutes when a patient misses their appointment.',
-    message: <>Hi <em>[Patient]</em>! We noticed you missed your appointment with <em>[Doctor]</em> on <em>[Date]</em>.<br/><br/>Would you like to reschedule?<br/>📅 Book: flamingohealthcare.in<br/>📞 044-2658 2424</>
+    message: <>Hi <em>[Patient]</em>, your appointment with <em>[Doctor]</em> on <em>[Date]</em> was not completed.<br/><br/>You can book a new slot here:<br/>📅 flamingohealthcare.in<br/>📞 044-2658 2424</>
   },
   {
     title: '📞 Answered call — thank you', trigger: 'Inbound call answered & completed',
@@ -101,28 +136,28 @@ const TEMPLATES: Template[] = [
     color: 'var(--amber)', headerClass: 'tpl-head-amber',
     badge: { label: 'Automated', variant: 'amber' },
     desc: 'Apology and callback assurance sent automatically when a call goes unanswered.',
-    message: <>Dear <em>[Patient]</em>,<br/><br/>We noticed your call went unanswered. We apologise for the inconvenience.<br/><br/>Our team will call you back shortly.<br/>📞 044-2658 2424<br/>📅 Book online: flamingohealthcare.in</>
+    message: <>Dear <em>[Patient]</em>, your call to Flamingo Healthcare was not connected.<br/><br/>Our team will call you back shortly.<br/>📞 044-2658 2424 / +91 9150565888<br/>📅 Book online: flamingohealthcare.in</>
   },
   {
     title: '🔁 30 / 60 / 90-day recall', trigger: 'Daily at 9 AM — scheduled from last visit',
     color: 'var(--blue)', headerClass: 'tpl-head-blue',
     badge: { label: 'Daily 9 AM', variant: 'blue' },
     desc: 'Automatically scheduled when a patient completes a visit. Fires at 30, 60, or 90 days.',
-    message: <>Hi <em>[Patient]</em>! 👋 Flamingo Healthcare reminder.<br/><br/>It has been <em>[30/60/90]</em> days since your last <em>[Specialty]</em> visit.<br/><br/>📅 Book now: flamingohealthcare.in<br/>📞 044-2658 2424</>
+    message: <>Hi <em>[Patient]</em>, this is a routine <em>[30/60/90]</em>-day follow-up reminder from Flamingo Healthcare (<em>[Specialty]</em>).<br/><br/>A periodic review is recommended at this stage.<br/>📅 Book now: flamingohealthcare.in<br/>📞 044-2658 2424</>
   },
   {
     title: '🎂 Birthday message', trigger: 'Daily at 9 AM — matches date of birth',
     color: 'var(--purple)', headerClass: 'tpl-head-purple',
     badge: { label: 'Daily 9 AM', variant: 'purple' },
     desc: 'Sent automatically on the patient\'s birthday. DOB synced from MocDoc.',
-    message: <>Happy Birthday, <em>[Patient]</em>! 🎂<br/><br/>The entire team at Flamingo Healthcare wishes you a wonderful birthday filled with joy and good health.<br/><br/>📞 044-2658 2424</>
+    message: <>Happy Birthday, <em>[Patient]</em>! 🎂<br/><br/>The team at Flamingo Healthcare wishes you good health this year. If you are due for a check-up, you can book one anytime:<br/>📅 flamingohealthcare.in<br/>📞 044-2658 2424</>
   },
   {
-    title: '🥳 First-visit anniversary', trigger: 'Daily at 9 AM — matches first visit date',
+    title: '🩺 Annual visit reminder', trigger: 'Daily at 9 AM — matches first visit date',
     color: 'var(--purple)', headerClass: 'tpl-head-purple',
     badge: { label: 'Daily 9 AM', variant: 'purple' },
-    desc: 'Sent on the anniversary of the patient\'s first visit.',
-    message: <>Hi <em>[Patient]</em>! 🌟 On this day last year, you first visited Flamingo Healthcare.<br/><br/>We are grateful for your trust. Your health is always our priority.<br/>📅 flamingohealthcare.in</>
+    desc: 'Sent on the anniversary of the patient\'s first visit, as an annual check-up reminder.',
+    message: <>Hi <em>[Patient]</em>, it has been a year since your first visit to Flamingo Healthcare.<br/><br/>An annual check-up is recommended.<br/>📅 Book: flamingohealthcare.in</>
   },
   {
     title: '🎉 Festival greetings', trigger: 'Daily at 9 AM — auto-detects Indian festivals',
@@ -136,14 +171,14 @@ const TEMPLATES: Template[] = [
     color: 'var(--purple)', headerClass: 'tpl-head-purple',
     badge: { label: 'Daily 9 AM', variant: 'purple' },
     desc: 'Sent exactly 7 days after a consultation is completed.',
-    message: <>Hi <em>[Patient]</em>! 👋 It has been a week since your visit to Flamingo Healthcare.<br/><br/>How are you feeling? If you need a follow-up with Dr. <em>[Doctor]</em>, we are here.<br/>📅 flamingohealthcare.in</>
+    message: <>Hi <em>[Patient]</em>, this is a 1-week follow-up from Flamingo Healthcare regarding your visit with Dr. <em>[Doctor]</em>.<br/><br/>If you would like a follow-up consultation, you can book one here:<br/>📅 flamingohealthcare.in</>
   },
   {
     title: '💊 90-day re-engagement', trigger: 'Daily at 9 AM — inactive 90+ days',
     color: 'var(--purple)', headerClass: 'tpl-head-purple',
     badge: { label: 'Daily 9 AM', variant: 'purple' },
     desc: 'Sent to patients who have not been contacted in 90+ days. Professional clinical tone.',
-    message: <>Dear <em>[Patient]</em>,<br/><br/>This is a courtesy message from Flamingo Healthcare, Ambattur.<br/><br/>As a <em>[Specialty]</em> patient, periodic follow-up consultations are recommended.<br/><br/>📞 044-2658 2424<br/>📅 flamingohealthcare.in</>
+    message: <>Hi <em>[Patient]</em>, it has been a while since your last visit to Flamingo Healthcare, Ambattur.<br/><br/>As a <em>[Specialty]</em> patient, a periodic follow-up consultation is recommended.<br/><br/>📞 044-2658 2424<br/>📅 flamingohealthcare.in</>
   },
   {
     title: '📢 Monthly health broadcast', trigger: 'Automatic — 1st of each month (also sendable manually)',
