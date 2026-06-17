@@ -205,6 +205,18 @@ async function runReEngagement() {
 }
 
 // ── MONTHLY HEALTH BROADCAST (1st of each month) ──────────────────────────────
+async function runTemplateSync() {
+  try {
+    const templates = require('./templates');
+    const result = await templates.syncTemplates();
+    console.log(`[scheduler] Template sync: ${result.synced}/${result.total} cached from Meta`);
+  } catch (e) {
+    // Non-fatal — badges/picker just show stale data until the next attempt
+    // or a manual sync from the dashboard.
+    console.error('[scheduler] Template sync failed:', e.message);
+  }
+}
+
 async function runMonthlyBroadcast() {
   const now = new Date();
   const ym  = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -262,10 +274,12 @@ async function runDailyJobs() {
     await runMonthlyBroadcast();
   }
 
+  await runTemplateSync();
   console.log('[scheduler] Daily run complete');
 }
 // ── SCHEDULER ─────────────────────────────────────────────────────────────────
 function start() {
+  runTemplateSync().catch(e => console.error('[scheduler] Startup template sync failed:', e.message));
   // Schedule daily at 9:00 AM
   function scheduleNext() {
     const now  = new Date();
@@ -295,4 +309,4 @@ function start() {
   }, 10000);
 }
 
-module.exports = { start, runDailyJobs, runBirthdays, runFestivalGreetings, runMonthlyBroadcast };
+module.exports = { start, runDailyJobs, runBirthdays, runFestivalGreetings, runMonthlyBroadcast, runTemplateSync };
