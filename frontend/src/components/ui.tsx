@@ -89,22 +89,26 @@ export function Card({
 }
 
 // ── Tab bar ───────────────────────────────────────────────────────────────────
-export function TabBar({ tabs, active, onChange }: {
+export function TabBar({ tabs, active, onChange, right }: {
   tabs: { key: string; label: string }[]
   active: string
   onChange: (key: string) => void
+  right?: React.ReactNode
 }) {
   return (
-    <div className="tab-row">
-      {tabs.map(t => (
-        <button
-          key={t.key}
-          className={`tab-btn ${active === t.key ? 'active' : ''}`}
-          onClick={() => onChange(t.key)}
-        >
-          {t.label}
-        </button>
-      ))}
+    <div className="tab-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex' }}>
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            className={`tab-btn ${active === t.key ? 'active' : ''}`}
+            onClick={() => onChange(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {right && <div style={{ paddingRight: 12 }}>{right}</div>}
     </div>
   )
 }

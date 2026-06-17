@@ -34,7 +34,7 @@ function TemplateStatusBadge({ templateName, allTemplates }: { templateName: str
   if (!t) {
     return (
       <div style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg2)', display: 'inline-block', padding: '3px 9px', borderRadius: 6, marginBottom: 10 }}>
-        📋 Template <Mono>{templateName}</Mono> — not yet synced. Click Sync on the Camp tab to check its status.
+        📋 Template <Mono>{templateName}</Mono> — not yet synced. Click "Sync templates" above to check its status.
       </div>
     )
   }
@@ -275,6 +275,12 @@ export function BroadcastPage() {
         ]}
         active={tab}
         onChange={setTab}
+        right={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {syncMsg && <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>{syncMsg}</span>}
+            <Btn variant="sm" loading={syncing} onClick={syncTemplates}>↻ Sync templates</Btn>
+          </div>
+        }
       />
 
       {tab === 'health-tip' && (
@@ -340,18 +346,14 @@ export function BroadcastPage() {
 
       {tab === 'camp' && (
         <div style={{ padding: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>
-              Templates are pulled live from Meta — only ones approved there can be sent.
-            </div>
-            <Btn variant="sm" loading={syncing} onClick={syncTemplates}>↻ Sync from Meta</Btn>
+          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 12 }}>
+            Templates are pulled live from Meta — only ones approved there can be sent.
           </div>
-          {syncMsg && <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 10 }}>{syncMsg}</div>}
 
           {tplLoading ? (
             <div style={{ color: 'var(--text3)', fontSize: 13 }}>Loading templates…</div>
           ) : templates.length === 0 ? (
-            <Empty msg="No approved templates yet — submit one in WhatsApp Manager, then Sync from Meta." />
+            <Empty msg="No approved templates yet — submit one in WhatsApp Manager, then click Sync templates above." />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div>
