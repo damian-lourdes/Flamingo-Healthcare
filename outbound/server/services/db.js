@@ -47,10 +47,8 @@ async function setup() {
       status       TEXT NOT NULL,   -- answered | missed | abandoned
       agent        TEXT,
       notes        TEXT,
-      recording_url TEXT,
       called_at    TIMESTAMPTZ DEFAULT NOW()
     );
-    ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS recording_url TEXT;
     -- Dialer: callback queue (missed calls waiting to be called back)
     CREATE TABLE IF NOT EXISTS callback_queue (
       id          SERIAL PRIMARY KEY,
@@ -108,14 +106,6 @@ async function setup() {
     );
 
     -- Migrate existing patient_profiles if columns missing (safe on re-run)
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lifecycle_stage TEXT DEFAULT 'patient';
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_status     TEXT;
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_source     TEXT;
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS referred_by     TEXT;
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS assigned_to     TEXT;
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS next_action_at  TIMESTAMPTZ;
-    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_notes      TEXT;
-    CREATE INDEX IF NOT EXISTS idx_pp_lead ON patient_profiles(lifecycle_stage, lead_status, next_action_at);
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lname          TEXT;
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS title          TEXT;
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS phid           TEXT;
@@ -310,17 +300,6 @@ async function setup() {
     );
 
     -- ── Audit log ─────────────────────────────────────────────────────────────
-    CREATE TABLE IF NOT EXISTS whatsapp_templates (
-      name TEXT NOT NULL,
-      language TEXT NOT NULL,
-      category TEXT,
-      status TEXT,
-      placeholder_count INTEGER DEFAULT 0,
-      body_text TEXT,
-      examples JSONB,
-      synced_at TIMESTAMPTZ,
-      PRIMARY KEY (name, language)
-    );
     CREATE TABLE IF NOT EXISTS app_settings (
       key        TEXT PRIMARY KEY,
       value      TEXT,
@@ -427,6 +406,7 @@ async function setup() {
     ALTER TABLE visits ADD COLUMN IF NOT EXISTS specialty_id INTEGER REFERENCES specialties(id);
     ALTER TABLE visits ADD COLUMN IF NOT EXISTS updated_by   TEXT DEFAULT 'mocdoc-webhook';
     ALTER TABLE visits ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW();
+    ALTER TABLE visits ADD COLUMN IF NOT EXISTS no_show_checked BOOLEAN DEFAULT FALSE;
     CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id);
 
     -- ── bills: link to patient + doctor, audit columns ────────────────────────
@@ -668,11 +648,45 @@ async function addNoShow({phone,name,doctor,specialty,originalDt}) {
 const getPendingNoShows = () =>
   q("SELECT * FROM follow_up_queue WHERE status='pending' ORDER BY created_at DESC");
 
+async function deriveNoShows() {
+  // MocDoc has no no-show webhook or status field (confirmed against their
+  // documented webhook list) -- this derives a no-show from timing instead:
+  // an appointment more than 1 hour past its scheduled time, with no later
+  // check-in, checkout, reschedule, or cancellation logged for that phone
+  // on that date, is treated as a no-show.
+  const rows = await q(`
+    SELECT v.id, v.phone, v.doctor, v.specialty, v.checkin_date, v.checkin_time
+    FROM visits v
+    WHERE v.visit_status = 'appointment'
+      AND v.no_show_checked = FALSE
+      AND v.checkin_date ~ '^[0-9]{8}$'
+      AND v.checkin_time ~ '^[0-9]{2}:[0-9]{2}$'
+      AND to_timestamp(v.checkin_date || v.checkin_time, 'YYYYMMDDHH24:MI') < NOW() - INTERVAL '1 hour'
+      AND NOT EXISTS (
+        SELECT 1 FROM visits v2
+        WHERE v2.phone = v.phone
+          AND v2.checkin_date = v.checkin_date
+          AND v2.id > v.id
+          AND v2.visit_status IN ('checkin','checkout','appointment-reschedule','appointment-cancelled')
+      )
+  `);
+
+  for (const r of rows) {
+    const nameRow = await q('SELECT name FROM patient_profiles WHERE phone=$1', [r.phone]);
+    const name = nameRow[0]?.name || 'Patient';
+    const originalDt = `${r.checkin_date} ${r.checkin_time}`;
+    await addNoShow({ phone: r.phone, name, doctor: r.doctor, specialty: r.specialty, originalDt }).catch(() => {});
+    await pool.query('UPDATE visits SET no_show_checked = TRUE WHERE id=$1', [r.id]);
+    console.log(`[no-show] derived: ${name} (${r.phone}) — was due ${originalDt}, never checked in`);
+  }
+  return rows.length;
+}
+
 const markNoShowRecovered = id =>
   pool.query("UPDATE follow_up_queue SET status='recovered' WHERE id=$1",[id]);
 
 // ── Dialer ────────────────────────────────────────────────────────────────────
-async function logCall({phone, callerName, durationSec, status, agent, notes, refId, recordingUrl}) {
+async function logCall({phone, callerName, durationSec, status, agent, notes, refId}) {
   let id;
 
   // Link to an existing patient record if this number is already a known patient.
@@ -683,9 +697,7 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
   // If we have a ref_id (e.g. Exotel CallSid) and a row already exists for it,
   // update that row in place rather than inserting a duplicate — this lets the
   // initial "call-attempt" event (incoming call received) get upgraded by a
-  // later completion event (answered/missed) for the same call. Recordings in
-  // particular only become available on a later event, since Exotel can't know
-  // the recording URL until the call (and thus the recording) has finished.
+  // later completion event (answered/missed) for the same call.
   if (refId) {
     const existing = await pool.query(
       'SELECT id FROM dialer_calls WHERE ref_id=$1 ORDER BY id DESC LIMIT 1',
@@ -695,34 +707,32 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
       id = existing.rows[0].id;
       await pool.query(
         `UPDATE dialer_calls SET
-           status        = $1,
-           duration_sec  = COALESCE($2, duration_sec),
-           agent         = COALESCE($3, agent),
-           notes         = COALESCE($4, notes),
-           caller_name   = COALESCE($5, caller_name),
-           patient_id    = COALESCE($6, patient_id),
-           recording_url = COALESCE($7, recording_url),
-           updated_at    = NOW()
-         WHERE id=$8`,
-        [status, durationSec||null, agent||null, notes||null, callerName||null, patientId, recordingUrl||null, id]
+           status       = $1,
+           duration_sec = COALESCE($2, duration_sec),
+           agent        = COALESCE($3, agent),
+           notes        = COALESCE($4, notes),
+           caller_name  = COALESCE($5, caller_name),
+           patient_id   = COALESCE($6, patient_id),
+           updated_at   = NOW()
+         WHERE id=$7`,
+        [status, durationSec||null, agent||null, notes||null, callerName||null, patientId, id]
       );
     }
   }
 
   if (!id) {
     const res = await pool.query(
-      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id,patient_id,recording_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
-      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null, patientId, recordingUrl||null]
+      'INSERT INTO dialer_calls(phone,caller_name,duration_sec,status,agent,notes,ref_id,patient_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [phone, callerName||null, durationSec||null, status, agent||null, notes||null, refId||null, patientId]
     );
     id = res.rows[0].id;
   }
 
   // Queue a callback for any call that wasn't answered — this includes
-  // 'missed' (explicit), 'received' (incoming call logged on a trial
-  // Exotel account where the Connect leg never completes), and 'abandoned'
-  // (caller hung up before connecting) — in every case the patient got no
-  // real response and needs a human callback.
-  if (status === 'missed' || status === 'received' || status === 'abandoned') {
+  // 'missed' (explicit) and 'received' (incoming call logged on a trial
+  // Exotel account where the Connect leg never completes, so the patient
+  // effectively got no response and needs a human callback).
+  if (status === 'missed' || status === 'received') {
     const already = await pool.query(
       'SELECT id FROM callback_queue WHERE call_id=$1',
       [id]
@@ -740,8 +750,6 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
 
 const getCalls = (limit=100) =>
   q('SELECT * FROM dialer_calls ORDER BY called_at DESC LIMIT $1',[limit]);
-
-const getCallById = (id) => q1('SELECT * FROM dialer_calls WHERE id=$1',[id]);
 
 const getCallbackQueue = () =>
   q(`
@@ -763,7 +771,7 @@ const getDialerStats = async () => {
   const today = new Date(); today.setHours(0,0,0,0);
   const [total,missed,answered,avgDur] = await Promise.all([
     q1('SELECT COUNT(*) AS n FROM dialer_calls WHERE called_at>=NOW()-INTERVAL \'7 days\''),
-    q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status IN ('missed','received','abandoned') AND called_at>=NOW()-INTERVAL '7 days'"),
+    q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status IN ('missed','received') AND called_at>=NOW()-INTERVAL '7 days'"),
     q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
     q1("SELECT ROUND(AVG(duration_sec)) AS avg FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
   ]);
@@ -864,17 +872,12 @@ async function getOutboundByDate() {
 }
 
 async function getPatientMessageHistory(phone) {
-  // DESC + LIMIT first, so a patient with >100 messages gets their most
-  // recent 100 (not their oldest 100) — then reverse for display, since a
-  // chat thread reads top-to-bottom in the order it happened, and the
-  // frontend scrolls to the bottom expecting the newest message to land there.
-  const rows = await q(`
+  return q(`
     SELECT om.*, pp.name AS patient_name
     FROM outbound_messages om
     LEFT JOIN patient_profiles pp ON pp.id = om.patient_id
     WHERE om.phone=$1 ORDER BY om.sent_at DESC LIMIT 100
   `, [phone]);
-  return rows.reverse();
 }
 
 // ── Patient profiles (for personalised messages) ──────────────────────────────
@@ -1282,8 +1285,8 @@ module.exports = {
   alreadySent, logSent,
   scheduleRecall, getDueRecalls, getPendingRecalls, markRecallSent,
   scheduleDelayedMessage, getDueDelayedMessages, markDelayedMessageSent, markDelayedMessageFailed,
-  addNoShow, getPendingNoShows, markNoShowRecovered,
-  logCall, getCalls, getCallById, getCallbackQueue, markCallbackDone, getDialerStats,
+  addNoShow, getPendingNoShows, markNoShowRecovered, deriveNoShows,
+  logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
   listState,
   logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
   upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
@@ -1304,25 +1307,5 @@ module.exports = {
   // Audit log
   logAudit, getAuditLog,
   getSetting, setSetting,
-  tagLead, convertLead,
   setup,
 };
-
-// ── Lead / CRM helpers ────────────────────────────────────────────────────────
-async function tagLead({ phone, name, source, referredBy = null, status = 'new', onlyIfNew = false }) {
-  await pool.query(
-    `INSERT INTO patient_profiles (phone, name, lifecycle_stage, lead_status, lead_source, referred_by)
-     VALUES ($1, $2, 'lead', $3, $4, $5)
-     ON CONFLICT (phone) DO UPDATE SET
-       name        = COALESCE(patient_profiles.name, EXCLUDED.name),
-       lead_source = COALESCE(patient_profiles.lead_source, EXCLUDED.lead_source),
-       referred_by = COALESCE(patient_profiles.referred_by, EXCLUDED.referred_by),
-       lifecycle_stage = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
-                              THEN patient_profiles.lifecycle_stage ELSE 'lead' END,
-       lead_status = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
-                          THEN patient_profiles.lead_status ELSE COALESCE(patient_profiles.lead_status, $7) END`,
-    [phone, name || null, status, source, referredBy, onlyIfNew, status]);
-}
-async function convertLead({ phone }) {
-  await pool.query(`UPDATE patient_profiles SET lifecycle_stage='patient', lead_status='converted' WHERE phone=$1`, [phone]);
-}

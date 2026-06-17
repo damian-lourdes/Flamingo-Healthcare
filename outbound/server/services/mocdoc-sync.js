@@ -330,6 +330,7 @@ async function sync() {
     ['Lab results',   () => syncLabResults(date)],    // No webhook available
     ['Room transfers', () => syncRoomTransfers()],    // No webhook — pull /api/get/transferroom
     ['Delayed messages', () => processDelayedMessages()], // IP Day 2 / post-discharge — durable queue
+    ['Derive no-shows', () => db.deriveNoShows()],
     // OP visits & bills now covered by Check In/Out + OP Bill webhooks
     // ['OP visits',  () => syncOPVisits(date)],      // Replaced by webhooks
     // ['OP bills',   () => syncOPBills(date)],       // Replaced by webhooks
