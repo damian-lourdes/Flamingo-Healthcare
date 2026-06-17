@@ -285,7 +285,6 @@ export function BroadcastPage() {
 
       {tab === 'health-tip' && (
         <div style={{ padding: 16 }}>
-          <TemplateStatusBadge templateName="monthly_health_tip" allTemplates={allTemplates} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <div className="form-label" style={{ marginBottom: 4 }}>Campaign name</div>
@@ -318,7 +317,6 @@ export function BroadcastPage() {
 
       {tab === 'offer' && (
         <div style={{ padding: 16 }}>
-          <TemplateStatusBadge templateName="health_package_offer" allTemplates={allTemplates} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <input className="inp" placeholder="Offer title e.g. Free Health Check-up Camp" value={ofTitle} onChange={e => setOfTitle(e.target.value)} style={{ marginBottom: 8 }} />
