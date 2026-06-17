@@ -60,3 +60,14 @@ export const TEMPLATES: Record<string, string> = {
   health:      `Hi {name}! 💊 A friendly health reminder from Flamingo Healthcare.\n\nA routine check-up is recommended to stay on top of your health.\n📅 Schedule your check-up: flamingohealthcare.in\n📞 044-2658 2424`,
   festival:    `Warmest wishes from all of us at Flamingo Healthcare! 🎉\n\nHi {name}, wishing you and your family health, happiness, and joy.\n\nWe are always here for your healthcare needs.\n📞 044-2658 2424`,
 }
+
+// Renders a Meta template body with its placeholders filled in, for live
+// previews before sending. {{1}} is always the recipient's name.
+export function renderTemplatePreview(bodyText: string, recipientName: string, extraParams: string[]): string {
+  if (!bodyText) return ''
+  const all = [recipientName || 'Patient Name', ...extraParams]
+  return bodyText.replace(/\{\{(\d+)\}\}/g, (_, n) => {
+    const i = parseInt(n, 10) - 1
+    return all[i] && all[i].trim() ? all[i] : `{{${n}}}`
+  })
+}

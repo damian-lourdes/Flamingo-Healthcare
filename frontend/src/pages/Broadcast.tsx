@@ -1,10 +1,55 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { TabBar, Card, Btn, Mono, Empty, Select } from '../components/ui'
-import { parseRecipients, ago } from '../utils'
+import { parseRecipients, ago, renderTemplatePreview } from '../utils'
 import type { BroadcastCampaign, BroadcastList, BroadcastListMember } from '../types'
 
-type WTemplate = { name: string; language: string; category: string; status: string; placeholder_count: number; body_text: string; examples?: string[] }
+type WTemplate = { name: string; language: string; category: string; status: string; placeholder_count: number; body_text: string; examples?: string[]; synced_at?: string }
+
+// A small WhatsApp-style bubble showing exactly what the message will look
+// like once placeholders are filled in — same rendering logic Meta uses,
+// done client-side so staff see it before they send anything.
+function MessagePreview({ bodyText, recipientName, extraParams }: { bodyText: string; recipientName: string; extraParams: string[] }) {
+  if (!bodyText) return null
+  const text = renderTemplatePreview(bodyText, recipientName, extraParams)
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="form-label" style={{ marginBottom: 4, fontSize: 11.5, color: 'var(--text3)' }}>Preview</div>
+      <div style={{
+        background: '#E7FFDB', borderRadius: '10px 10px 10px 2px', padding: '10px 12px',
+        fontSize: 13.5, lineHeight: 1.5, color: '#111', whiteSpace: 'pre-wrap',
+        maxWidth: 360, boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+      }}>
+        {text}
+      </div>
+    </div>
+  )
+}
+
+// Small read-only status tag for tabs that always use one fixed, known
+// template (Health tip, Offer) — shows whether it's still approved on
+// Meta's side, sourced from the same sync cache the Camp tab uses.
+function TemplateStatusBadge({ templateName, allTemplates }: { templateName: string; allTemplates: WTemplate[] }) {
+  const t = allTemplates.find(x => x.name === templateName)
+  if (!t) {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg2)', display: 'inline-block', padding: '3px 9px', borderRadius: 6, marginBottom: 10 }}>
+        📋 Template <Mono>{templateName}</Mono> — not yet synced. Click Sync on the Camp tab to check its status.
+      </div>
+    )
+  }
+  const ok = t.status === 'APPROVED'
+  return (
+    <div style={{
+      fontSize: 12, display: 'inline-block', padding: '3px 9px', borderRadius: 6, marginBottom: 10,
+      background: ok ? 'var(--bg2)' : '#FDECEC', color: ok ? 'var(--text2)' : '#B42318',
+    }}>
+      {ok ? '📋' : '⚠️'} Using approved template <Mono>{templateName}</Mono>
+      {!ok && ` — status: ${t.status}. Sends may not deliver until approved.`}
+      {t.synced_at && <span style={{ color: 'var(--text3)' }}> · synced {ago(t.synced_at)}</span>}
+    </div>
+  )
+}
 
 // Loads recipients into the shared textarea either from every opted-in
 // patient or from a saved broadcast list, in the same "phone,Name" format
@@ -109,6 +154,11 @@ export function BroadcastPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [members, setMembers] = useState<Record<number, BroadcastListMember[]>>({})
   const [membersLoading, setMembersLoading] = useState<number | null>(null)
+
+  // Live status of every synced template (incl. non-approved), for the
+  // Health-tip/Offer status badges. Fetched once on mount — cheap, local cache read.
+  const [allTemplates, setAllTemplates] = useState<WTemplate[]>([])
+  useEffect(() => { api.listAllTemplates().then(setAllTemplates) }, [])
 
   const loadHistory = () => api.broadcastHistory().then(setCampaigns)
   useEffect(() => { loadHistory() }, [])
@@ -229,6 +279,7 @@ export function BroadcastPage() {
 
       {tab === 'health-tip' && (
         <div style={{ padding: 16 }}>
+          <TemplateStatusBadge templateName="monthly_health_tip" allTemplates={allTemplates} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <div className="form-label" style={{ marginBottom: 4 }}>Campaign name</div>
@@ -239,6 +290,7 @@ export function BroadcastPage() {
               <textarea className="inp" rows={6} style={{ resize: 'vertical' }} placeholder="Hi {name}! 👋 Health tip from Flamingo Healthcare..."
                 value={htMsg} onChange={e => setHtMsg(e.target.value)} />
               <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Variables: {'{'} name {'}'} {'{'} hospital {'}'}</div>
+              <MessagePreview bodyText={htMsg.replace(/\{name\}/g, '{{1}}')} recipientName="Patient Name" extraParams={[]} />
             </div>
             <div>
               <div className="form-label" style={{ marginBottom: 4 }}>
@@ -260,12 +312,18 @@ export function BroadcastPage() {
 
       {tab === 'offer' && (
         <div style={{ padding: 16 }}>
+          <TemplateStatusBadge templateName="health_package_offer" allTemplates={allTemplates} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <input className="inp" placeholder="Offer title e.g. Free Health Check-up Camp" value={ofTitle} onChange={e => setOfTitle(e.target.value)} style={{ marginBottom: 8 }} />
               <textarea className="inp" rows={4} style={{ resize: 'vertical', marginBottom: 8 }} placeholder="Offer details — what is included, who can avail..."
                 value={ofDetails} onChange={e => setOfDetails(e.target.value)} />
               <input className="inp" placeholder="Valid till (e.g. 30 June 2026)" value={ofValid} onChange={e => setOfValid(e.target.value)} />
+              <MessagePreview
+                bodyText={(allTemplates.find(t => t.name === 'health_package_offer')?.body_text) || ''}
+                recipientName="Patient Name"
+                extraParams={[ofTitle, ofDetails, ofValid]}
+              />
             </div>
             <div>
               <RecipientPicker onLoad={(text, info) => { setOfRecip(text); setOfInfo(info) }} />
@@ -319,6 +377,9 @@ export function BroadcastPage() {
                 ))}
                 {selectedTemplate && tplValues.length === 0 && (
                   <div style={{ fontSize: 12, color: 'var(--text3)' }}>This template only needs the recipient's name — no extra fields.</div>
+                )}
+                {selectedTemplate && (
+                  <MessagePreview bodyText={selectedTemplate.body_text} recipientName="Patient Name" extraParams={tplValues} />
                 )}
               </div>
               <div>
