@@ -3,10 +3,12 @@
  * Supports: Exotel, Knowlarity, MyOperator, Servetel, and generic payloads.
  */
 const router         = require('express').Router();
+const { Readable }   = require('stream');
 const db             = require('../services/db');
 const engagement     = require('../services/engagement');
 const normalisePhone = require('../middleware/normalisePhone');
 const requireAuth    = require('../middleware/requireAuth');
+const config         = require('../config');
 
 // ── Payload normaliser — maps any PBX format to internal format ───────────────
 function normalisePayload(body) {
@@ -221,7 +223,38 @@ router.post('/call', async (req, res) => {
   }
 });
 
-// ── Mark callback done (dashboard action — requires login) ───────────────────
+// ── Recording proxy (dashboard reads — require login) ────────────────────────
+// Exotel's RecordingUrl is not publicly playable — it requires HTTP Basic Auth
+// (API Key as username, API Token as password) per Exotel's own docs. A plain
+// <audio src="..."> pointed straight at it makes the *browser* try to
+// authenticate, which just pops a native sign-in dialog the user can't use.
+// This route fetches the recording server-side (where the credentials live)
+// and streams it back, forwarding Range headers both ways so seeking/scrubbing
+// in the player still works.
+router.get('/recording/:id', requireAuth, async (req, res, next) => {
+  try {
+    const call = await db.getCallById(req.params.id);
+    if (!call || !call.recording_url) return res.sendStatus(404);
+
+    const auth = Buffer.from(`${config.exotel.apiKey}:${config.exotel.apiToken}`).toString('base64');
+    const headers = { Authorization: `Basic ${auth}` };
+    if (req.headers.range) headers.Range = req.headers.range;
+
+    const upstream = await fetch(call.recording_url, { headers });
+    if (!upstream.ok && upstream.status !== 206) {
+      return res.status(502).json({ error: `Exotel returned ${upstream.status} fetching the recording` });
+    }
+
+    res.status(upstream.status);
+    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+      const v = upstream.headers.get(h);
+      if (v) res.setHeader(h, v);
+    }
+    Readable.fromWeb(upstream.body).pipe(res);
+  } catch (e) { next(e); }
+});
+
+
 router.post('/callback/:id/done', requireAuth, async (req, res, next) => {
   try {
     await db.markCallbackDone(req.params.id, req.body.status || 'called_back');

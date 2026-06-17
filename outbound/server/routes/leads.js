@@ -21,11 +21,11 @@ router.get('/:phone', async (req, res, next) => {
     const phone = req.params.phone;
     const lead = (await q(`SELECT * FROM patient_profiles WHERE phone=$1`, [phone]))[0] || null;
     const calls = await q(
-      `SELECT status, agent, called_at AS at, recording_url FROM dialer_calls WHERE phone=$1 ORDER BY called_at DESC LIMIT 30`, [phone]);
+      `SELECT id, status, agent, called_at AS at, recording_url FROM dialer_calls WHERE phone=$1 ORDER BY called_at DESC LIMIT 30`, [phone]);
     const msgs = await q(
       `SELECT trigger_type, message, sent_at AS at FROM outbound_messages WHERE phone=$1 ORDER BY sent_at DESC LIMIT 30`, [phone]);
     const timeline = [
-      ...calls.map(c => ({ kind: 'call', label: `Call · ${c.status || 'logged'}${c.agent ? ' · ' + c.agent : ''}`, at: c.at, recordingUrl: c.recording_url || null })),
+      ...calls.map(c => ({ kind: 'call', label: `Call · ${c.status || 'logged'}${c.agent ? ' · ' + c.agent : ''}`, at: c.at, callId: c.id, recordingUrl: c.recording_url || null })),
       ...msgs.map(m => ({ kind: 'message', label: `WhatsApp${m.trigger_type ? ' · ' + m.trigger_type : ''}`, at: m.at, text: m.message })),
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     res.json({ lead, timeline });

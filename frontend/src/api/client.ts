@@ -26,6 +26,13 @@ export function getToken(): string | null    { return sessionStorage.getItem(TOK
 export function getUser(): string | null     { return sessionStorage.getItem(USER_KEY) }
 export function isLoggedIn(): boolean        { return !!getToken() }
 
+// Builds the URL for the recording-proxy route, used directly as an <audio
+// src="..."> — those elements can't send an Authorization header, so the
+// token rides along as a query param instead (requireAuth accepts both).
+export function recordingUrl(callId: number | string): string {
+  return `${BASE}/api/dialer/recording/${callId}?token=${encodeURIComponent(getToken() ?? '')}`
+}
+
 export function saveAuth(token: string, username: string) {
   sessionStorage.setItem(TOKEN_KEY, token)
   sessionStorage.setItem(USER_KEY, username)

@@ -730,6 +730,8 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
 const getCalls = (limit=100) =>
   q('SELECT * FROM dialer_calls ORDER BY called_at DESC LIMIT $1',[limit]);
 
+const getCallById = (id) => q1('SELECT * FROM dialer_calls WHERE id=$1',[id]);
+
 const getCallbackQueue = () =>
   q(`
     SELECT cq.id, cq.call_id, cq.missed_at, cq.status,
@@ -1265,7 +1267,7 @@ module.exports = {
   scheduleRecall, getDueRecalls, getPendingRecalls, markRecallSent,
   scheduleDelayedMessage, getDueDelayedMessages, markDelayedMessageSent, markDelayedMessageFailed,
   addNoShow, getPendingNoShows, markNoShowRecovered,
-  logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
+  logCall, getCalls, getCallById, getCallbackQueue, markCallbackDone, getDialerStats,
   listState,
   logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
   upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,

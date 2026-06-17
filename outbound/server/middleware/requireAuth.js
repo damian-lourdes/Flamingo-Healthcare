@@ -13,7 +13,11 @@ const { verify } = require('../routes/auth');
 
 module.exports = function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  // Browser media elements (<audio>, <img>) can't send custom headers, so
+  // routes that get embedded as a plain src="..." URL (e.g. the recording
+  // proxy) need a header-free way to authenticate — accept ?token=... as a
+  // fallback for those cases. Every other route keeps using the header.
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.query.token || null);
   const payload = verify(token);
 
   if (!payload) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { api } from '../api/client'
+import { api, recordingUrl } from '../api/client'
 import { StatCard, Card, CallBadge, Btn, Mono, Empty } from '../components/ui'
 import { ago } from '../utils'
 import type { DialerStats, CallRecord, CallbackRecord } from '../types'
@@ -129,7 +129,7 @@ export function DialerPage() {
                         <td><Mono>{ago(c.called_at)}</Mono></td>
                         <td>
                           {c.recording_url
-                            ? <audio controls preload="none" style={{ height: 28, width: 180 }} src={c.recording_url} />
+                            ? <audio controls preload="none" style={{ height: 28, width: 180 }} src={recordingUrl(c.id)} />
                             : <span style={{ color: 'var(--text3)' }}>—</span>}
                         </td>
                       </tr>

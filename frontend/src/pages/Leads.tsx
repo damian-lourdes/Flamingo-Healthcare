@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { api } from '../api/client'
+import { api, recordingUrl } from '../api/client'
 import { Btn, Empty } from '../components/ui'
 
 type Lead = { id:number; phone:string; name:string; lead_status:string; lead_source:string; referred_by?:string; assigned_to?:string; next_action_at?:string }
@@ -106,7 +106,7 @@ export function LeadsPage() {
                   <div key={i} style={{ padding:'7px 0', borderTop:'1px solid var(--border)' }}>
                     <div style={{ fontSize:13 }}>{t.label}</div>
                     {t.text && <div style={{ fontSize:11.5, color:'var(--text3)', marginTop:2 }}>{String(t.text).slice(0,120)}</div>}
-                    {t.recordingUrl && <audio controls preload="none" style={{ height:26, width:200, marginTop:4 }} src={t.recordingUrl} />}
+                    {t.recordingUrl && <audio controls preload="none" style={{ height:26, width:200, marginTop:4 }} src={recordingUrl(t.callId)} />}
                     <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>{fmt(t.at)}</div>
                   </div>
                 ))}
