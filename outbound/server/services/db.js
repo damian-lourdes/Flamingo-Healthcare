@@ -707,10 +707,11 @@ async function logCall({phone, callerName, durationSec, status, agent, notes, re
   }
 
   // Queue a callback for any call that wasn't answered — this includes
-  // 'missed' (explicit) and 'received' (incoming call logged on a trial
-  // Exotel account where the Connect leg never completes, so the patient
-  // effectively got no response and needs a human callback).
-  if (status === 'missed' || status === 'received') {
+  // 'missed' (explicit), 'received' (incoming call logged on a trial
+  // Exotel account where the Connect leg never completes), and 'abandoned'
+  // (caller hung up before connecting) — in every case the patient got no
+  // real response and needs a human callback.
+  if (status === 'missed' || status === 'received' || status === 'abandoned') {
     const already = await pool.query(
       'SELECT id FROM callback_queue WHERE call_id=$1',
       [id]
