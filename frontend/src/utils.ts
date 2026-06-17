@@ -56,7 +56,7 @@ export function parseRecipients(raw: string): { phone: string; name?: string }[]
 }
 
 export const TEMPLATES: Record<string, string> = {
-  followup:    `Hi {name}! 👋 Flamingo Healthcare would like to check in with you.\n\nHow have you been feeling? A quick follow-up consultation can make a big difference.\n📅 Book now: flamingohealthcare.in\n📞 044-2658 2424`,
-  health:      `Hi {name}! 💊 A friendly health reminder from Flamingo Healthcare.\n\nStaying on top of your health is the best gift you can give yourself.\n📅 Schedule your check-up: flamingohealthcare.in\n📞 044-2658 2424`,
+  followup:    `Hi {name}! 👋 Flamingo Healthcare would like to check in with you.\n\nA follow-up consultation is recommended to review your progress.\n📅 Book now: flamingohealthcare.in\n📞 044-2658 2424`,
+  health:      `Hi {name}! 💊 A friendly health reminder from Flamingo Healthcare.\n\nA routine check-up is recommended to stay on top of your health.\n📅 Schedule your check-up: flamingohealthcare.in\n📞 044-2658 2424`,
   festival:    `Warmest wishes from all of us at Flamingo Healthcare! 🎉\n\nHi {name}, wishing you and your family health, happiness, and joy.\n\nWe are always here for your healthcare needs.\n📞 044-2658 2424`,
 }
