@@ -48,7 +48,6 @@ export function DialerPage() {
     { key: 'queue',  label: `Callback queue${callbacks.length > 0 ? ` (${callbacks.length})` : ''}` },
     { key: 'log',    label: 'Call log' },
     { key: 'manual', label: 'Log manually' },
-    { key: 'setup',  label: 'PBX setup' },
   ]
 
   return (
@@ -183,71 +182,6 @@ export function DialerPage() {
             <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--text3)' }}>
               Missed calls logged here will automatically send a WhatsApp callback notice to the patient
               and appear in the Callback queue above.
-            </div>
-          </div>
-        )}
-
-        {/* ── PBX setup guide ── */}
-        {activeTab === 'setup' && (
-          <div style={{ padding: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>
-              Connect your phone system to Flamingo
-            </div>
-
-            {/* Webhook URL */}
-            <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                Webhook URL — paste this in your PBX dashboard
-              </div>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, color: 'var(--teal)', wordBreak: 'break-all' }}>
-                {WEBHOOK_URL}
-              </div>
-            </div>
-
-            {/* Supported PBX systems */}
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>
-              Supported phone systems
-            </div>
-            <table style={{ marginBottom: 16 }}>
-              <thead>
-                <tr><th>Provider</th><th>Where to configure</th><th>Field name</th></tr>
-              </thead>
-              <tbody>
-                {[
-                  ['Exotel',      'Apps → Your App → Passthrough → Status Callback URL', 'Status Callback URL'],
-                  ['Servetel',    'Settings → Webhook → Call Webhook URL',               'Call Webhook URL'],
-                  ['Knowlarity',  'Settings → Webhook → Post Call URL',                  'Post Call URL'],
-                  ['MyOperator',  'Settings → Webhooks → Call Events',                   'Webhook URL'],
-                  ['Ozonetel',    'Settings → API → Hangup URL',                         'Hangup URL'],
-                ].map(([provider, where, field]) => (
-                  <tr key={provider}>
-                    <td style={{ fontWeight: 500 }}>{provider}</td>
-                    <td style={{ fontSize: 12.5, color: 'var(--text2)' }}>{where}</td>
-                    <td><Mono>{field}</Mono></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* What happens */}
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', marginBottom: 8 }}>
-              What happens automatically
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[
-                { icon: '📞', label: 'Every call',    desc: 'Logged with phone number, duration, and status' },
-                { icon: '📩', label: 'Every call',    desc: 'WhatsApp sent: "Thank you for contacting Flamingo Healthcare"' },
-                { icon: '📵', label: 'Missed calls',  desc: 'Added to Callback queue + WhatsApp: "We will call you back shortly"' },
-                { icon: '✅', label: 'Called back',   desc: 'Click "Called back" in queue to remove from pending list' },
-              ].map(item => (
-                <div key={item.label + item.desc} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13.5 }}>
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>{item.icon}</span>
-                  <div>
-                    <span style={{ fontWeight: 500 }}>{item.label} — </span>
-                    <span style={{ color: 'var(--text2)' }}>{item.desc}</span>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}
