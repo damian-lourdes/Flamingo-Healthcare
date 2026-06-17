@@ -23,6 +23,7 @@ module.exports = {
   whatsapp: {
     token:         process.env.META_ACCESS_TOKEN  || '',
     phoneNumberId: process.env.META_PHONE_NUMBER_ID || '',
+    wabaId:        process.env.META_WABA_ID || '',
     appSecret:     process.env.APP_SECRET      || '',
     verifyToken:   process.env.VERIFY_TOKEN    || 'flamingo_verify_token_123',
     apiVersion:    'v21.0',

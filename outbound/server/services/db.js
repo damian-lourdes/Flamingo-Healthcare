@@ -310,6 +310,17 @@ async function setup() {
     );
 
     -- ── Audit log ─────────────────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS whatsapp_templates (
+      name TEXT NOT NULL,
+      language TEXT NOT NULL,
+      category TEXT,
+      status TEXT,
+      placeholder_count INTEGER DEFAULT 0,
+      body_text TEXT,
+      examples JSONB,
+      synced_at TIMESTAMPTZ,
+      PRIMARY KEY (name, language)
+    );
     CREATE TABLE IF NOT EXISTS app_settings (
       key        TEXT PRIMARY KEY,
       value      TEXT,

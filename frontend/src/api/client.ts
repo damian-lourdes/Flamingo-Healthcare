@@ -158,6 +158,10 @@ export const api = {
     post<SuccessResponse>('/api/broadcast/personalised', body),
   sendCamp:        (body: {campType: string; date: string; venue: string; details?: string; recipients: {phone: string; name?: string}[]}) =>
     post<BroadcastSendResult>('/api/broadcast/camp', body),
+  listTemplates:   () => get<any[]>('/api/templates', []),
+  syncTemplates:   () => post<{success:boolean; synced?:number; total?:number; message?:string}>('/api/templates/sync', {}),
+  sendTemplateMsg: (body: {name:string; language?:string; params:string[]; recipients:{phone:string; name?:string}[]; campaignName?:string}) =>
+    post<BroadcastSendResult>('/api/templates/send', body),
   getSetting:      (key: string) => get<{key: string; value: string | null}>('/api/dashboard/settings/' + key, { key, value: null }),
   setSetting:      (key: string, value: string) => post<SuccessResponse>('/api/dashboard/settings/' + key, { value }),
   listLeads:       () => get<any[]>('/api/leads', []),

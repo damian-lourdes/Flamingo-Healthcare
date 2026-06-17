@@ -4,6 +4,8 @@ import { TabBar, Card, Btn, Mono, Empty, Select } from '../components/ui'
 import { parseRecipients, ago } from '../utils'
 import type { BroadcastCampaign, BroadcastList, BroadcastListMember } from '../types'
 
+type WTemplate = { name: string; language: string; category: string; status: string; placeholder_count: number; body_text: string; examples?: string[] }
+
 // Loads recipients into the shared textarea either from every opted-in
 // patient or from a saved broadcast list, in the same "phone,Name" format
 // the manual textarea expects — so the result stays visible and editable
@@ -79,15 +81,17 @@ export function BroadcastPage() {
   const [ofResult, setOfResult]   = useState('')
   const [ofLoading, setOfLoading] = useState(false)
 
-  // Camp fields
-  const [cpType, setCpType]       = useState('')
-  const [cpDate, setCpDate]       = useState('')
-  const [cpVenue, setCpVenue]     = useState('')
-  const [cpDetails, setCpDetails] = useState('')
-  const [cpRecip, setCpRecip]     = useState('')
-  const [cpInfo, setCpInfo]       = useState('')
-  const [cpResult, setCpResult]   = useState('')
-  const [cpLoading, setCpLoading] = useState(false)
+  // Camp tab — live Meta template picker (replaces the old fixed form)
+  const [templates, setTemplates]   = useState<WTemplate[]>([])
+  const [tplLoading, setTplLoading] = useState(false)
+  const [syncing, setSyncing]       = useState(false)
+  const [syncMsg, setSyncMsg]       = useState('')
+  const [selTpl, setSelTpl]         = useState('')
+  const [tplValues, setTplValues]   = useState<string[]>([])
+  const [cpRecip, setCpRecip]       = useState('')
+  const [cpInfo, setCpInfo]         = useState('')
+  const [cpResult, setCpResult]     = useState('')
+  const [cpLoading, setCpLoading]   = useState(false)
 
   // Monthly tip
   const [mtTip, setMtTip]         = useState('')
@@ -112,9 +116,48 @@ export function BroadcastPage() {
   useEffect(() => {
     if (tab === 'monthly') api.getSetting('monthly_health_tip').then(r => setMtTip(r.value || ''))
   }, [tab])
+  useEffect(() => { if (tab === 'camp') loadTemplates() }, [tab])
 
   const loadLists = () => api.broadcastLists().then(setLists)
   useEffect(() => { if (tab === 'lists') loadLists() }, [tab])
+
+  const loadTemplates = async () => {
+    setTplLoading(true)
+    const list = await api.listTemplates()
+    setTemplates(list)
+    setTplLoading(false)
+  }
+
+  const syncTemplates = async () => {
+    setSyncing(true); setSyncMsg('')
+    const r = await api.syncTemplates()
+    setSyncing(false)
+    setSyncMsg(r.success ? `Synced — ${r.synced} template(s) from Meta` : (r.message || 'Sync failed'))
+    if (r.success) loadTemplates()
+  }
+
+  const selectTemplate = (name: string) => {
+    setSelTpl(name)
+    setCpResult('')
+    const t = templates.find(x => x.name === name)
+    const extra = t ? Math.max(0, t.placeholder_count - 1) : 0
+    const seed = t?.examples?.slice(1) || []
+    setTplValues(Array.from({ length: extra }, (_, i) => seed[i] || ''))
+  }
+
+  const sendTpl = async () => {
+    if (!selTpl || !cpRecip) return
+    setCpLoading(true)
+    const t = templates.find(x => x.name === selTpl)
+    const r = await api.sendTemplateMsg({
+      name: selTpl, language: t?.language || 'en',
+      params: tplValues, recipients: parseRecipients(cpRecip),
+      campaignName: selTpl,
+    })
+    setCpResult(r.success === false ? (r as any).message : `Done — sent: ${r.sent} failed: ${r.failed}`)
+    setCpLoading(false)
+    loadHistory()
+  }
 
   const toggleMembers = async (id: number) => {
     if (expandedId === id) { setExpandedId(null); return }
@@ -160,21 +203,14 @@ export function BroadcastPage() {
     loadHistory()
   }
 
-  const sendCamp = async () => {
-    if (!cpType || !cpDate || !cpVenue || !cpRecip) return
-    setCpLoading(true)
-    const r = await api.sendCamp({ campType: cpType, date: cpDate, venue: cpVenue, details: cpDetails || undefined, recipients: parseRecipients(cpRecip) })
-    setCpResult(r.success === false ? (r as any).message : `Done — sent: ${r.sent} failed: ${r.failed}`)
-    setCpLoading(false)
-    loadHistory()
-  }
-
   const saveMonthly = async () => {
     setMtLoading(true)
     const r = await api.setSetting('monthly_health_tip', mtTip)
     setMtResult((r as any).success === false ? 'Save failed' : 'Saved — used automatically on the 1st of each month')
     setMtLoading(false)
   }
+
+  const selectedTemplate = templates.find(t => t.name === selTpl)
 
   return (
     <div className="card">
@@ -246,24 +282,56 @@ export function BroadcastPage() {
 
       {tab === 'camp' && (
         <div style={{ padding: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <input className="inp" placeholder="Camp type e.g. free diabetes screening camp" value={cpType} onChange={e => setCpType(e.target.value)} style={{ marginBottom: 8 }} />
-              <input className="inp" placeholder="Date & time e.g. 5 July 2026, 9 AM–1 PM" value={cpDate} onChange={e => setCpDate(e.target.value)} style={{ marginBottom: 8 }} />
-              <input className="inp" placeholder="Venue e.g. our Ambattur centre" value={cpVenue} onChange={e => setCpVenue(e.target.value)} style={{ marginBottom: 8 }} />
-              <textarea className="inp" rows={3} style={{ resize: 'vertical' }} placeholder="Details — free services, who can attend..."
-                value={cpDetails} onChange={e => setCpDetails(e.target.value)} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>
+              Templates are pulled live from Meta — only ones approved there can be sent.
             </div>
-            <div>
-              <RecipientPicker onLoad={(text, info) => { setCpRecip(text); setCpInfo(info) }} />
-              <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 4 }}
-                placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
-                value={cpRecip} onChange={e => { setCpRecip(e.target.value); setCpInfo('') }} />
-              {cpInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 6 }}>{cpInfo}</div>}
-              <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={cpLoading} onClick={sendCamp}>Send camp info</Btn>
-              {cpResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{cpResult}</div>}
-            </div>
+            <Btn variant="sm" loading={syncing} onClick={syncTemplates}>↻ Sync from Meta</Btn>
           </div>
+          {syncMsg && <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 10 }}>{syncMsg}</div>}
+
+          {tplLoading ? (
+            <div style={{ color: 'var(--text3)', fontSize: 13 }}>Loading templates…</div>
+          ) : templates.length === 0 ? (
+            <Empty msg="No approved templates yet — submit one in WhatsApp Manager, then Sync from Meta." />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <div className="form-label" style={{ marginBottom: 4 }}>Template</div>
+                <select className="inp" value={selTpl} onChange={e => selectTemplate(e.target.value)} style={{ marginBottom: 10 }}>
+                  <option value="">Select an approved template…</option>
+                  {templates.map(t => (
+                    <option key={t.name + t.language} value={t.name}>{t.name} ({t.language})</option>
+                  ))}
+                </select>
+
+                {selectedTemplate && (
+                  <div style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg2)', borderRadius: 8, padding: 10, marginBottom: 10, whiteSpace: 'pre-wrap' }}>
+                    {selectedTemplate.body_text}
+                  </div>
+                )}
+
+                {selectedTemplate && tplValues.map((v, i) => (
+                  <input key={i} className="inp" style={{ marginBottom: 8 }}
+                    placeholder={`{{${i + 2}}}`}
+                    value={v}
+                    onChange={e => setTplValues(vals => vals.map((x, j) => j === i ? e.target.value : x))} />
+                ))}
+                {selectedTemplate && tplValues.length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text3)' }}>This template only needs the recipient's name — no extra fields.</div>
+                )}
+              </div>
+              <div>
+                <RecipientPicker onLoad={(text, info) => { setCpRecip(text); setCpInfo(info) }} />
+                <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 4 }}
+                  placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
+                  value={cpRecip} onChange={e => { setCpRecip(e.target.value); setCpInfo('') }} />
+                {cpInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 6 }}>{cpInfo}</div>}
+                <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={cpLoading} disabled={!selTpl} onClick={sendTpl}>Send template</Btn>
+                {cpResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{cpResult}</div>}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
