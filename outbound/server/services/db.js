@@ -853,12 +853,17 @@ async function getOutboundByDate() {
 }
 
 async function getPatientMessageHistory(phone) {
-  return q(`
+  // DESC + LIMIT first, so a patient with >100 messages gets their most
+  // recent 100 (not their oldest 100) — then reverse for display, since a
+  // chat thread reads top-to-bottom in the order it happened, and the
+  // frontend scrolls to the bottom expecting the newest message to land there.
+  const rows = await q(`
     SELECT om.*, pp.name AS patient_name
     FROM outbound_messages om
     LEFT JOIN patient_profiles pp ON pp.id = om.patient_id
     WHERE om.phone=$1 ORDER BY om.sent_at DESC LIMIT 100
   `, [phone]);
+  return rows.reverse();
 }
 
 // ── Patient profiles (for personalised messages) ──────────────────────────────
