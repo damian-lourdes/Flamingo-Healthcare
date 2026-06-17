@@ -749,7 +749,7 @@ const getDialerStats = async () => {
   const today = new Date(); today.setHours(0,0,0,0);
   const [total,missed,answered,avgDur] = await Promise.all([
     q1('SELECT COUNT(*) AS n FROM dialer_calls WHERE called_at>=NOW()-INTERVAL \'7 days\''),
-    q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status IN ('missed','received') AND called_at>=NOW()-INTERVAL '7 days'"),
+    q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status IN ('missed','received','abandoned') AND called_at>=NOW()-INTERVAL '7 days'"),
     q1("SELECT COUNT(*) AS n FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
     q1("SELECT ROUND(AVG(duration_sec)) AS avg FROM dialer_calls WHERE status='answered' AND called_at>=NOW()-INTERVAL '7 days'"),
   ]);

@@ -198,8 +198,10 @@ async function processCall(rawPayload) {
     return;
   }
 
-  if (finalStatus === 'missed' || finalStatus === 'no-answer' || finalStatus === 'busy') {
-    // Unanswered — apologise and queue a callback.
+  if (finalStatus === 'missed' || finalStatus === 'no-answer' || finalStatus === 'busy' || finalStatus === 'abandoned') {
+    // Unanswered, or caller hung up before connecting — either way the patient
+    // didn't get help, so apologise and queue a callback rather than treating
+    // it as a completed call.
     await engagement.onMissedCall({ phone: normPhone, callerName: caller_name || null });
     console.log(`[dialer] Missed call from ${normPhone} — callback queued`);
   } else {
