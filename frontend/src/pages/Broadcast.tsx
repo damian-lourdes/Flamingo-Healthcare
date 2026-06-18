@@ -247,12 +247,12 @@ export function BroadcastPage() {
   const createList = async () => {
     if (!listName || !listRecip) return
     setListLoading(true)
-    const phones = parseRecipients(listRecip).map(r => r.phone)
-    const r = await api.createBroadcastList({ name: listName, description: listDesc || undefined, phones })
+    const recipients = parseRecipients(listRecip)
+    const r = await api.createBroadcastList({ name: listName, description: listDesc || undefined, phones: recipients })
     if ((r as any).success === false) {
       setListResult('Save failed')
     } else {
-      setListResult(`Saved "${listName}" with ${phones.length} recipient${phones.length === 1 ? '' : 's'}`)
+      setListResult(`Saved "${listName}" with ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}`)
       setListName(''); setListDesc(''); setListRecip(''); setListInfo('')
       loadLists()
     }

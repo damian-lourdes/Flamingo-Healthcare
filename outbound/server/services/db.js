@@ -466,6 +466,7 @@ async function setup() {
     ALTER TABLE broadcast_lists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
     ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
+    ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS name TEXT;
     ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
     ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
@@ -1162,10 +1163,16 @@ async function createBroadcastList({ name, description, phones }) {
   );
   const id = res.rows[0].id;
   for (const p of phones) {
-    const patientId = await resolvePatientId(p);
+    // Accepts either a bare phone string (legacy callers) or a
+    // {phone, name} object (so contacts without a matching patient
+    // record — e.g. staff, referrers — still get their name saved).
+    const phone = typeof p === 'string' ? p : p.phone;
+    const memberName = typeof p === 'string' ? null : (p.name || null);
+    const patientId = await resolvePatientId(phone);
     await pool.query(
-      'INSERT INTO broadcast_list_members(list_id,phone,patient_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',
-      [id, p, patientId]
+      `INSERT INTO broadcast_list_members(list_id,phone,patient_id,name) VALUES($1,$2,$3,$4)
+       ON CONFLICT (list_id,phone) DO UPDATE SET name = COALESCE(EXCLUDED.name, broadcast_list_members.name)`,
+      [id, phone, patientId, memberName]
     );
   }
   await logAudit({ actor: 'system', action: 'create', entity: 'broadcast_lists', entityId: id,
@@ -1175,7 +1182,7 @@ async function createBroadcastList({ name, description, phones }) {
 
 async function getBroadcastListMembers(listId) {
   const rows = await q(
-    `SELECT blm.phone, pp.name FROM broadcast_list_members blm
+    `SELECT blm.phone, COALESCE(blm.name, pp.name) AS name FROM broadcast_list_members blm
      LEFT JOIN patient_profiles pp ON pp.phone=blm.phone
      WHERE blm.list_id=$1`, [listId]
   );

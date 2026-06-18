@@ -157,7 +157,7 @@ export const api = {
   broadcastHistory: () => get<BroadcastCampaign[]>('/api/broadcast/history', []),
   broadcastLists:   () => get<BroadcastList[]>('/api/broadcast/lists', []),
   broadcastListMembers: (id: number) => get<BroadcastListMember[]>(`/api/broadcast/lists/${id}/members`, []),
-  createBroadcastList: (body: { name: string; description?: string; phones: string[] }) =>
+  createBroadcastList: (body: { name: string; description?: string; phones: (string | { phone: string; name?: string })[] }) =>
     post<{ success: boolean; id: number }>('/api/broadcast/lists', body),
   // Uploads an Excel/CSV file, returns parsed {phone, name} rows for review
   // before saving — nothing is saved to a list as part of this call.
