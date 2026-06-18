@@ -66,8 +66,12 @@ function notifyAuthChange() { _authListeners.forEach(l => l()) }
 // ── Core fetch ────────────────────────────────────────────────────────────────
 async function safeFetch<T>(path: string, opts?: RequestInit, fallback?: T): Promise<T> {
   const token = getToken()
+  // FormData bodies (image uploads) need the browser to set its own
+  // multipart Content-Type with boundary — forcing application/json here
+  // would break the upload, so it's only applied for plain JSON bodies.
+  const isFormData = opts?.body instanceof FormData
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(opts?.headers as Record<string, string> ?? {}),
   }
@@ -161,7 +165,17 @@ export const api = {
   listTemplates:   () => get<any[]>('/api/templates', []),
   listAllTemplates:() => get<any[]>('/api/templates?all=true', []),
   syncTemplates:   () => post<{success:boolean; synced?:number; total?:number; message?:string}>('/api/templates/sync', {}),
-  sendTemplateMsg: (body: {name:string; language?:string; params:string[]; recipients:{phone:string; name?:string}[]; campaignName?:string}) =>
+  // Uploads a banner image to Meta for image-header templates; returns a
+  // media_id to pass as headerMediaId on the /send call below. Bypasses the
+  // post() JSON helper since this needs a FormData body.
+  uploadTemplateImage: (file: File) => {
+    const form = new FormData()
+    form.append('image', file)
+    return safeFetch<{ success: boolean; mediaId?: string; message?: string }>(
+      '/api/templates/upload-image', { method: 'POST', body: form }
+    )
+  },
+  sendTemplateMsg: (body: {name:string; language?:string; params:string[]; recipients:{phone:string; name?:string}[]; campaignName?:string; headerMediaId?:string}) =>
     post<BroadcastSendResult>('/api/templates/send', body),
   getSetting:      (key: string) => get<{key: string; value: string | null}>('/api/dashboard/settings/' + key, { key, value: null }),
   setSetting:      (key: string, value: string) => post<SuccessResponse>('/api/dashboard/settings/' + key, { value }),

@@ -29,11 +29,16 @@ async function fetchFromMeta() {
 // that's what the dashboard form needs to render input fields.
 function parsePlaceholders(template) {
   const body = (template.components || []).find(c => c.type === 'BODY');
-  if (!body || !body.text) return { count: 0, examples: [] };
+  // A template's HEADER component (if present) is always first per Meta's
+  // spec. format === 'IMAGE' means a banner image is required at send time —
+  // the dashboard needs this to ask for an upload before sending.
+  const header = (template.components || []).find(c => c.type === 'HEADER');
+  const hasImageHeader = header?.format === 'IMAGE';
+  if (!body || !body.text) return { count: 0, examples: [], hasImageHeader };
   const matches = [...body.text.matchAll(/\{\{(\d+)\}\}/g)];
   const count = matches.length ? Math.max(...matches.map(m => parseInt(m[1], 10))) : 0;
   const examples = body.example?.body_text?.[0] || [];
-  return { count, examples, bodyText: body.text };
+  return { count, examples, bodyText: body.text, hasImageHeader };
 }
 
 // Sync Meta -> local cache table. Called by the /sync endpoint, on demand.
@@ -41,16 +46,17 @@ async function syncTemplates() {
   const templates = await fetchFromMeta();
   let upserted = 0;
   for (const t of templates) {
-    const { count, examples, bodyText } = parsePlaceholders(t);
+    const { count, examples, bodyText, hasImageHeader } = parsePlaceholders(t);
     await db.pool.query(
-      `INSERT INTO whatsapp_templates (name, language, category, status, placeholder_count, body_text, examples, synced_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+      `INSERT INTO whatsapp_templates (name, language, category, status, placeholder_count, body_text, examples, has_image_header, synced_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
        ON CONFLICT (name, language) DO UPDATE SET
          category = EXCLUDED.category, status = EXCLUDED.status,
          placeholder_count = EXCLUDED.placeholder_count,
          body_text = EXCLUDED.body_text, examples = EXCLUDED.examples,
+         has_image_header = EXCLUDED.has_image_header,
          synced_at = now()`,
-      [t.name, t.language, t.category, t.status, count, bodyText || '', JSON.stringify(examples)]
+      [t.name, t.language, t.category, t.status, count, bodyText || '', JSON.stringify(examples), !!hasImageHeader]
     );
     upserted++;
   }
@@ -60,7 +66,7 @@ async function syncTemplates() {
 async function listCached({ approvedOnly = false } = {}) {
   const where = approvedOnly ? `WHERE status = 'APPROVED'` : '';
   const rows = await db.pool.query(
-    `SELECT name, language, category, status, placeholder_count, body_text, examples, synced_at
+    `SELECT name, language, category, status, placeholder_count, body_text, examples, has_image_header, synced_at
      FROM whatsapp_templates ${where} ORDER BY category, name`);
   return rows.rows.map(r => ({ ...r, examples: typeof r.examples === 'string' ? JSON.parse(r.examples) : r.examples }));
 }

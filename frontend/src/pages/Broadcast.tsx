@@ -4,7 +4,7 @@ import { TabBar, Card, Btn, Mono, Empty, Select } from '../components/ui'
 import { parseRecipients, ago, renderTemplatePreview } from '../utils'
 import type { BroadcastCampaign, BroadcastList, BroadcastListMember } from '../types'
 
-type WTemplate = { name: string; language: string; category: string; status: string; placeholder_count: number; body_text: string; examples?: string[]; synced_at?: string }
+type WTemplate = { name: string; language: string; category: string; status: string; placeholder_count: number; body_text: string; examples?: string[]; synced_at?: string; has_image_header?: boolean }
 
 // A small WhatsApp-style bubble showing exactly what the message will look
 // like once placeholders are filled in — same rendering logic Meta uses,
@@ -138,6 +138,15 @@ export function BroadcastPage() {
   const [cpResult, setCpResult]     = useState('')
   const [cpLoading, setCpLoading]   = useState(false)
 
+  // Camp tab — banner image upload, only relevant when the selected
+  // template has an IMAGE header (has_image_header). bannerMediaId is what
+  // actually gets sent; bannerPreview is just a local object-URL thumbnail.
+  const [bannerFile, setBannerFile]           = useState<File | null>(null)
+  const [bannerPreview, setBannerPreview]     = useState('')
+  const [bannerMediaId, setBannerMediaId]     = useState('')
+  const [bannerUploading, setBannerUploading] = useState(false)
+  const [bannerError, setBannerError]         = useState('')
+
   // Monthly tip
   const [mtTip, setMtTip]         = useState('')
   const [mtLoading, setMtLoading] = useState(false)
@@ -193,16 +202,37 @@ export function BroadcastPage() {
     const extra = t ? Math.max(0, t.placeholder_count - 1) : 0
     const seed = t?.examples?.slice(1) || []
     setTplValues(Array.from({ length: extra }, (_, i) => seed[i] || ''))
+    // Reset banner state so a previous camp's image isn't accidentally
+    // reused against a different template.
+    if (bannerPreview) URL.revokeObjectURL(bannerPreview)
+    setBannerFile(null); setBannerPreview(''); setBannerMediaId(''); setBannerError('')
+  }
+
+  const handleBannerSelect = async (file: File | null) => {
+    if (bannerPreview) URL.revokeObjectURL(bannerPreview)
+    setBannerFile(file); setBannerMediaId(''); setBannerError('')
+    if (!file) { setBannerPreview(''); return }
+    setBannerPreview(URL.createObjectURL(file))
+    setBannerUploading(true)
+    const r = await api.uploadTemplateImage(file)
+    setBannerUploading(false)
+    if (r.success && r.mediaId) setBannerMediaId(r.mediaId)
+    else setBannerError(r.message || 'Upload failed — try again.')
   }
 
   const sendTpl = async () => {
     if (!selTpl || !cpRecip) return
+    if (selectedTemplate?.has_image_header && !bannerMediaId) {
+      setCpResult('Upload a banner image for this template before sending.')
+      return
+    }
     setCpLoading(true)
     const t = templates.find(x => x.name === selTpl)
     const r = await api.sendTemplateMsg({
       name: selTpl, language: t?.language || 'en',
       params: tplValues, recipients: parseRecipients(cpRecip),
       campaignName: selTpl,
+      ...(bannerMediaId ? { headerMediaId: bannerMediaId } : {}),
     })
     setCpResult(r.success === false ? (r as any).message : `Done — sent: ${r.sent} failed: ${r.failed}`)
     setCpLoading(false)
@@ -369,6 +399,27 @@ export function BroadcastPage() {
                   </div>
                 )}
 
+                {selectedTemplate?.has_image_header && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div className="form-label" style={{ marginBottom: 4 }}>
+                      Banner image <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— required for this template</span>
+                    </div>
+                    <input type="file" accept="image/jpeg,image/png" style={{ fontSize: 12.5 }}
+                      onChange={e => handleBannerSelect(e.target.files?.[0] || null)} />
+                    {bannerPreview && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                        <img src={bannerPreview} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                        <div style={{ fontSize: 12 }}>
+                          <div style={{ color: 'var(--text3)' }}>{bannerFile?.name}</div>
+                          <div style={{ color: bannerUploading ? 'var(--text3)' : bannerMediaId ? 'var(--teal)' : 'var(--red)' }}>
+                            {bannerUploading ? 'Uploading to WhatsApp…' : bannerMediaId ? '✓ Uploaded' : (bannerError || 'Upload failed')}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {selectedTemplate && tplValues.map((v, i) => (
                   <input key={i} className="inp" style={{ marginBottom: 8 }}
                     placeholder={`{{${i + 2}}}`}
@@ -388,7 +439,9 @@ export function BroadcastPage() {
                   placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
                   value={cpRecip} onChange={e => { setCpRecip(e.target.value); setCpInfo('') }} />
                 {cpInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 6 }}>{cpInfo}</div>}
-                <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={cpLoading} disabled={!selTpl} onClick={sendTpl}>Send template</Btn>
+                <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={cpLoading}
+                  disabled={!selTpl || bannerUploading || !!(selectedTemplate?.has_image_header && !bannerMediaId)}
+                  onClick={sendTpl}>Send template</Btn>
                 {cpResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{cpResult}</div>}
               </div>
             </div>

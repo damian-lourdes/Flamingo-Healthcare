@@ -299,6 +299,28 @@ async function setup() {
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- ── WhatsApp template cache (synced from Meta) ───────────────────────────
+    -- One row per (name, language) template Meta has approved/pending/rejected
+    -- for this WABA. Populated by services/templates.js's syncTemplates(),
+    -- read by the Camp tab's template picker and the Health-tip/Offer status
+    -- badges. has_image_header flags templates whose first component is a
+    -- Meta-side IMAGE header, so the dashboard knows to ask for a banner
+    -- upload before that template can be sent.
+    CREATE TABLE IF NOT EXISTS whatsapp_templates (
+      name              TEXT NOT NULL,
+      language          TEXT NOT NULL,
+      category          TEXT,
+      status            TEXT,
+      placeholder_count INTEGER DEFAULT 0,
+      body_text         TEXT,
+      examples          JSONB,
+      has_image_header  BOOLEAN DEFAULT FALSE,
+      synced_at         TIMESTAMPTZ,
+      PRIMARY KEY (name, language)
+    );
+    -- Defensive — covers a table that already existed before this column did.
+    ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS has_image_header BOOLEAN DEFAULT FALSE;
+
     -- ── Audit log ─────────────────────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS app_settings (
       key        TEXT PRIMARY KEY,
