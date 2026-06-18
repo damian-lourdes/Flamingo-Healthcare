@@ -26,31 +26,6 @@ function MessagePreview({ bodyText, recipientName, extraParams }: { bodyText: st
   )
 }
 
-// Small read-only status tag for tabs that always use one fixed, known
-// template (Health tip, Offer) — shows whether it's still approved on
-// Meta's side, sourced from the same sync cache the Camp tab uses.
-function TemplateStatusBadge({ templateName, allTemplates }: { templateName: string; allTemplates: WTemplate[] }) {
-  const t = allTemplates.find(x => x.name === templateName)
-  if (!t) {
-    return (
-      <div style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg2)', display: 'inline-block', padding: '3px 9px', borderRadius: 6, marginBottom: 10 }}>
-        📋 Template <Mono>{templateName}</Mono> — not yet synced. Click "Sync templates" above to check its status.
-      </div>
-    )
-  }
-  const ok = t.status === 'APPROVED'
-  return (
-    <div style={{
-      fontSize: 12, display: 'inline-block', padding: '3px 9px', borderRadius: 6, marginBottom: 10,
-      background: ok ? 'var(--bg2)' : '#FDECEC', color: ok ? 'var(--text2)' : '#B42318',
-    }}>
-      {ok ? '📋' : '⚠️'} Using approved template <Mono>{templateName}</Mono>
-      {!ok && ` — status: ${t.status}. Sends may not deliver until approved.`}
-      {t.synced_at && <span style={{ color: 'var(--text3)' }}> · synced {ago(t.synced_at)}</span>}
-    </div>
-  )
-}
-
 // Loads recipients into the shared textarea either from every opted-in
 // patient or from a saved broadcast list, in the same "phone,Name" format
 // the manual textarea expects — so the result stays visible and editable
@@ -106,27 +81,13 @@ function RecipientPicker({ onLoad }: { onLoad: (text: string, info: string) => v
 }
 
 export function BroadcastPage() {
-  const [tab, setTab] = useState('health-tip')
+  const [tab, setTab] = useState('campaign')
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([])
 
-  // Health tip fields
-  const [htName, setHtName]       = useState('')
-  const [htMsg, setHtMsg]         = useState('')
-  const [htRecip, setHtRecip]     = useState('')
-  const [htInfo, setHtInfo]       = useState('')
-  const [htResult, setHtResult]   = useState('')
-  const [htLoading, setHtLoading] = useState(false)
-
-  // Offer fields
-  const [ofTitle, setOfTitle]     = useState('')
-  const [ofDetails, setOfDetails] = useState('')
-  const [ofValid, setOfValid]     = useState('')
-  const [ofRecip, setOfRecip]     = useState('')
-  const [ofInfo, setOfInfo]       = useState('')
-  const [ofResult, setOfResult]   = useState('')
-  const [ofLoading, setOfLoading] = useState(false)
-
-  // Camp tab — live Meta template picker (replaces the old fixed form)
+  // Send-a-campaign tab — live Meta template picker, grouped by Meta's own
+  // category (MARKETING / UTILITY / AUTHENTICATION) so staff can tell
+  // templates apart at a glance without needing separate fixed-purpose tabs
+  // for what is, underneath, always the same send mechanism.
   const [templates, setTemplates]   = useState<WTemplate[]>([])
   const [tplLoading, setTplLoading] = useState(false)
   const [syncing, setSyncing]       = useState(false)
@@ -138,9 +99,9 @@ export function BroadcastPage() {
   const [cpResult, setCpResult]     = useState('')
   const [cpLoading, setCpLoading]   = useState(false)
 
-  // Camp tab — banner image upload, only relevant when the selected
-  // template has an IMAGE header (has_image_header). bannerMediaId is what
-  // actually gets sent; bannerPreview is just a local object-URL thumbnail.
+  // Banner image upload, only relevant when the selected template has an
+  // IMAGE header (has_image_header). bannerMediaId is what actually gets
+  // sent; bannerPreview is just a local object-URL thumbnail.
   const [bannerFile, setBannerFile]           = useState<File | null>(null)
   const [bannerPreview, setBannerPreview]     = useState('')
   const [bannerMediaId, setBannerMediaId]     = useState('')
@@ -163,15 +124,10 @@ export function BroadcastPage() {
   const [fileUploading, setFileUploading] = useState(false)
   const [fileError, setFileError]   = useState('')
 
-  // Live status of every synced template (incl. non-approved), for the
-  // Health-tip/Offer status badges. Fetched once on mount — cheap, local cache read.
-  const [allTemplates, setAllTemplates] = useState<WTemplate[]>([])
-  useEffect(() => { api.listAllTemplates().then(setAllTemplates) }, [])
-
   const loadHistory = () => api.broadcastHistory().then(setCampaigns)
   useEffect(() => { loadHistory() }, [])
   useEffect(() => { if (tab === 'history') loadHistory() }, [tab])
-  useEffect(() => { if (tab === 'camp') loadTemplates() }, [tab])
+  useEffect(() => { if (tab === 'campaign') loadTemplates() }, [tab])
 
   const loadLists = () => api.broadcastLists().then(setLists)
   useEffect(() => { if (tab === 'lists') loadLists() }, [tab])
@@ -198,7 +154,7 @@ export function BroadcastPage() {
     const extra = t ? Math.max(0, t.placeholder_count - 1) : 0
     const seed = t?.examples?.slice(1) || []
     setTplValues(Array.from({ length: extra }, (_, i) => seed[i] || ''))
-    // Reset banner state so a previous camp's image isn't accidentally
+    // Reset banner state so a previous template's image isn't accidentally
     // reused against a different template.
     if (bannerPreview) URL.revokeObjectURL(bannerPreview)
     setBannerFile(null); setBannerPreview(''); setBannerMediaId(''); setBannerError('')
@@ -321,35 +277,25 @@ export function BroadcastPage() {
     )
   }
 
-  const sendHT = async () => {
-    if (!htMsg || !htRecip) return
-    setHtLoading(true)
-    const r = await api.sendHealthTip({ campaign_name: htName || 'Health tip', message: htMsg, recipients: parseRecipients(htRecip) })
-    setHtResult(r.success === false ? (r as any).message : `Done — sent: ${r.sent} failed: ${r.failed}`)
-    setHtLoading(false)
-    loadHistory()
-  }
-
-  const sendOffer = async () => {
-    if (!ofTitle || !ofRecip) return
-    setOfLoading(true)
-    const r = await api.sendOffer({ offer_title: ofTitle, offer_details: ofDetails, valid_till: ofValid || undefined, recipients: parseRecipients(ofRecip) })
-    setOfResult(r.success === false ? (r as any).message : `Done — sent: ${r.sent} failed: ${r.failed}`)
-    setOfLoading(false)
-    loadHistory()
-  }
-
   const selectedTemplate = templates.find(t => t.name === selTpl)
+
+  // Templates grouped by Meta's own category (MARKETING / UTILITY /
+  // AUTHENTICATION / etc.) so the dropdown gives staff real context about
+  // each template instead of a flat, undifferentiated list. Falls back to
+  // "Other" for any template without a recognised category.
+  const templatesByCategory = templates.reduce<Record<string, WTemplate[]>>((acc, t) => {
+    const key = t.category || 'Other'
+    ;(acc[key] ||= []).push(t)
+    return acc
+  }, {})
 
   return (
     <div className="card">
       <TabBar
         tabs={[
-          { key: 'health-tip', label: 'Health tip' },
-          { key: 'offer',      label: 'Offer / package' },
-          { key: 'camp',       label: 'Camp' },
-          { key: 'lists',      label: 'Lists' },
-          { key: 'history',    label: 'Campaign history' },
+          { key: 'campaign', label: 'Send a campaign' },
+          { key: 'lists',    label: 'Lists' },
+          { key: 'history',  label: 'Campaign history' },
         ]}
         active={tab}
         onChange={setTab}
@@ -361,66 +307,7 @@ export function BroadcastPage() {
         }
       />
 
-      {tab === 'health-tip' && (
-        <div style={{ padding: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <div className="form-label" style={{ marginBottom: 4 }}>Campaign name</div>
-              <input className="inp" placeholder="e.g. June Diabetes Tips" value={htName} onChange={e => setHtName(e.target.value)} style={{ marginBottom: 10 }} />
-              <div className="form-label" style={{ marginBottom: 4 }}>
-                Message <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— use {'{'} name {'}'} for patient name</span>
-              </div>
-              <textarea className="inp" rows={6} style={{ resize: 'vertical' }} placeholder="Hi {name}! 👋 Health tip from Flamingo Healthcare..."
-                value={htMsg} onChange={e => setHtMsg(e.target.value)} />
-              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Variables: {'{'} name {'}'} {'{'} hospital {'}'}</div>
-              <MessagePreview bodyText={htMsg.replace(/\{name\}/g, '{{1}}')} recipientName="Patient Name" extraParams={[]} />
-            </div>
-            <div>
-              <div className="form-label" style={{ marginBottom: 4 }}>
-                Recipients <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— one per line: +91XXXXXXXXXX,Name</span>
-              </div>
-              <RecipientPicker onLoad={(text, info) => { setHtRecip(text); setHtInfo(info) }} />
-              <textarea className="inp" rows={8} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13 }}
-                placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
-                value={htRecip} onChange={e => { setHtRecip(e.target.value); setHtInfo('') }} />
-              {htInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>{htInfo}</div>}
-              <div style={{ marginTop: 10 }}>
-                <Btn variant="primary" style={{ width: '100%' }} loading={htLoading} onClick={sendHT}>Send health tip</Btn>
-              </div>
-              {htResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{htResult}</div>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'offer' && (
-        <div style={{ padding: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div>
-              <input className="inp" placeholder="Offer title e.g. Free Health Check-up Camp" value={ofTitle} onChange={e => setOfTitle(e.target.value)} style={{ marginBottom: 8 }} />
-              <textarea className="inp" rows={4} style={{ resize: 'vertical', marginBottom: 8 }} placeholder="Offer details — what is included, who can avail..."
-                value={ofDetails} onChange={e => setOfDetails(e.target.value)} />
-              <input className="inp" placeholder="Valid till (e.g. 30 June 2026)" value={ofValid} onChange={e => setOfValid(e.target.value)} />
-              <MessagePreview
-                bodyText={(allTemplates.find(t => t.name === 'health_package_offer')?.body_text) || ''}
-                recipientName="Patient Name"
-                extraParams={[ofTitle, ofDetails, ofValid]}
-              />
-            </div>
-            <div>
-              <RecipientPicker onLoad={(text, info) => { setOfRecip(text); setOfInfo(info) }} />
-              <textarea className="inp" rows={7} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 4 }}
-                placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
-                value={ofRecip} onChange={e => { setOfRecip(e.target.value); setOfInfo('') }} />
-              {ofInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 6 }}>{ofInfo}</div>}
-              <Btn variant="primary" style={{ width: '100%', marginTop: 6 }} loading={ofLoading} onClick={sendOffer}>Send offer</Btn>
-              {ofResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{ofResult}</div>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'camp' && (
+      {tab === 'campaign' && (
         <div style={{ padding: 16 }}>
           <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 12 }}>
             Templates are pulled live from Meta — only ones approved there can be sent.
@@ -436,8 +323,12 @@ export function BroadcastPage() {
                 <div className="form-label" style={{ marginBottom: 4 }}>Template</div>
                 <select className="inp" value={selTpl} onChange={e => selectTemplate(e.target.value)} style={{ marginBottom: 10 }}>
                   <option value="">Select an approved template…</option>
-                  {templates.map(t => (
-                    <option key={t.name + t.language} value={t.name}>{t.name} ({t.language})</option>
+                  {Object.entries(templatesByCategory).map(([category, group]) => (
+                    <optgroup key={category} label={category}>
+                      {group.map(t => (
+                        <option key={t.name + t.language} value={t.name}>{t.name} ({t.language})</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
 
