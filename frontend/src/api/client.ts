@@ -159,6 +159,15 @@ export const api = {
   broadcastListMembers: (id: number) => get<BroadcastListMember[]>(`/api/broadcast/lists/${id}/members`, []),
   createBroadcastList: (body: { name: string; description?: string; phones: string[] }) =>
     post<{ success: boolean; id: number }>('/api/broadcast/lists', body),
+  // Uploads an Excel/CSV file, returns parsed {phone, name} rows for review
+  // before saving — nothing is saved to a list as part of this call.
+  parseListFile: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return safeFetch<{ success: boolean; rows?: { phone: string; name: string }[]; matchedColumns?: { phone: string; name: string | null }; warning?: string; message?: string }>(
+      '/api/broadcast/lists/parse-file', { method: 'POST', body: form }
+    )
+  },
   sendHealthTip:   (body: {campaign_name: string; message: string; recipients: {phone: string; name?: string}[]}) =>
     post<BroadcastSendResult>('/api/broadcast/health-tip', body),
   sendOffer:       (body: {offer_title: string; offer_details: string; valid_till?: string; recipients: {phone: string; name?: string}[]}) =>

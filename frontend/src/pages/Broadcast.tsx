@@ -160,6 +160,8 @@ export function BroadcastPage() {
   const [listInfo, setListInfo]     = useState('')
   const [listResult, setListResult] = useState('')
   const [listLoading, setListLoading] = useState(false)
+  const [fileUploading, setFileUploading] = useState(false)
+  const [fileError, setFileError]   = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [members, setMembers] = useState<Record<number, BroadcastListMember[]>>({})
   const [membersLoading, setMembersLoading] = useState<number | null>(null)
@@ -263,6 +265,27 @@ export function BroadcastPage() {
       loadLists()
     }
     setListLoading(false)
+  }
+
+  // Parses an uploaded Excel/CSV file and drops the result straight into the
+  // same recipients textarea used for manual entry — so staff can review,
+  // fix, or remove rows before saving, exactly like a manual paste would be.
+  const handleListFile = async (file: File | null) => {
+    if (!file) return
+    setFileError(''); setFileUploading(true)
+    const r = await api.parseListFile(file)
+    setFileUploading(false)
+    if (!r.success || !r.rows) {
+      setFileError(r.message || 'Could not read that file')
+      return
+    }
+    const lines = r.rows.map(row => row.name ? `${row.phone},${row.name}` : row.phone).join('\n')
+    setListRecip(lines)
+    setListInfo(
+      `Loaded ${r.rows.length} contact${r.rows.length === 1 ? '' : 's'} from file` +
+      (r.warning ? ` — ${r.warning}` : '') +
+      ' — review below before saving'
+    )
   }
 
   const sendHT = async () => {
@@ -479,6 +502,23 @@ export function BroadcastPage() {
               <div className="form-label" style={{ marginBottom: 4 }}>
                 Recipients <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— one per line: +91XXXXXXXXXX,Name</span>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <label className="inp" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                  width: 'auto', padding: '6px 12px', fontSize: 12.5,
+                }}>
+                  {fileUploading ? 'Reading file…' : '📄 Upload Excel/CSV'}
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    style={{ display: 'none' }}
+                    disabled={fileUploading}
+                    onChange={e => { handleListFile(e.target.files?.[0] || null); e.target.value = '' }}
+                  />
+                </label>
+                <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>or load below, or type manually</span>
+              </div>
+              {fileError && <div style={{ fontSize: 12, color: 'var(--red, #c0392b)', marginBottom: 6 }}>{fileError}</div>}
               <RecipientPicker onLoad={(text, info) => { setListRecip(text); setListInfo(info) }} />
               <textarea className="inp" rows={6} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13 }}
                 placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
