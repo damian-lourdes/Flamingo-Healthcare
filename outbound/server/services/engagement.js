@@ -541,4 +541,5 @@ module.exports = {
   sendHealthTip,
   sendOfferTemplate,
   sendCampInfo,
+  broadcastTemplate,
 };
