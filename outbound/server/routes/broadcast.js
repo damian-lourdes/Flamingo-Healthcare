@@ -17,19 +17,50 @@ const fs         = require('fs');
 const adminOnly = requireRole('admin');
 const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB cap
 
-// Header names we'll recognise for phone/name columns. Matched with
-// "contains" rather than exact equality, so real-world headers like
-// "Contact No", "Mobile Number", "Patient Phone" all match even though
-// they're not exact matches to a short candidate list.
-const PHONE_HEADERS = ['phone', 'mobile', 'contact', 'number', 'whatsapp'];
-const NAME_HEADERS  = ['name', 'patient', 'customer'];
+// Phone columns: matched in two tiers. Strong, unambiguous terms (phone,
+// mobile, contact, etc.) match first via substring. Short abbreviations
+// (no, ph, tel, cell, wa) only count if that column's actual sample value
+// looks like a real phone number — this avoids a false positive like
+// "S.No" (a row index) beating the real phone column just because it
+// contains the word "no".
+const PHONE_SUBSTRINGS = ['phone', 'mobile', 'mob', 'contact', 'number', 'whatsapp', 'telephone'];
+const PHONE_WORDS      = ['no', 'ph', 'tel', 'cell', 'wa'];
 
-function findCol(headers, candidates) {
+// Name columns: "patient"/"customer" are unambiguous about whose name it
+// is, so they win over a bare "name" match — this matters if a sheet also
+// has an unrelated name column (e.g. "Doctor Name") that would otherwise
+// be picked first just by appearing earlier.
+const NAME_SPECIFIC = ['patient', 'customer'];
+const NAME_GENERIC  = ['name'];
+
+function wordsOf(h) {
+  return h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function looksLikePhone(val) {
+  if (val === undefined || val === null) return false;
+  const digits = String(val).replace(/\D/g, '');
+  return digits.length >= 8 && digits.length <= 15;
+}
+
+function findPhoneCol(headers, sampleRow) {
   const lower = headers.map(h => h.trim().toLowerCase());
-  // First pass: prefer a header that contains a candidate word (e.g.
-  // "Contact No" contains "contact").
   for (let i = 0; i < lower.length; i++) {
-    if (candidates.some(c => lower[i].includes(c))) return headers[i];
+    if (PHONE_SUBSTRINGS.some(s => lower[i].includes(s))) return headers[i];
+  }
+  const words = headers.map(h => wordsOf(h));
+  const wordMatches = headers.filter((h, i) => PHONE_WORDS.some(w => words[i].includes(w)));
+  return wordMatches.find(h => looksLikePhone(sampleRow?.[h])) || null;
+}
+
+function findNameCol(headers, excludeCol) {
+  const candidates = headers.filter(h => h !== excludeCol);
+  const lower = candidates.map(h => h.trim().toLowerCase());
+  for (let i = 0; i < lower.length; i++) {
+    if (NAME_SPECIFIC.some(s => lower[i].includes(s))) return candidates[i];
+  }
+  for (let i = 0; i < lower.length; i++) {
+    if (NAME_GENERIC.some(s => lower[i].includes(s))) return candidates[i];
   }
   return null;
 }
@@ -103,18 +134,16 @@ router.post('/lists/parse-file', adminOnly, (req, res, next) => {
     }
 
     const headers = Object.keys(rows[0]);
-    let phoneCol = findCol(headers, PHONE_HEADERS);
-    let nameCol  = findCol(headers, NAME_HEADERS);
+    let phoneCol = findPhoneCol(headers, rows[0]);
+    let nameCol  = findNameCol(headers, phoneCol);
 
-    // Fall back to column position only if NEITHER header matched anything
+    // Fall back to column position only if NOTHING matched anything
     // recognisable — and even then, guess based on which column actually
     // contains phone-number-shaped values, not just "column 1 = phone".
     if (!phoneCol) {
       const sample = rows[0];
       phoneCol = headers.find(h => normalisePhoneLoose(sample[h])) || headers[0];
-    }
-    if (!nameCol) {
-      nameCol = headers.find(h => h !== phoneCol) || null;
+      nameCol  = nameCol || headers.find(h => h !== phoneCol) || null;
     }
 
     const parsed = rows
