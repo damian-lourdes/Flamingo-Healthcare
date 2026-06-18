@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
-import { authApi, saveAuth } from '../api/client'
+import { authApi, saveAuth, type Role } from '../api/client'
 
 interface Props {
-  onLogin: (username: string) => void
+  onLogin: (username: string, role: Role) => void
 }
 
 export function LoginPage({ onLogin }: Props) {
@@ -18,8 +18,8 @@ export function LoginPage({ onLogin }: Props) {
     setError('')
     try {
       const res = await authApi.login(username, password)
-      saveAuth(res.access_token, res.username)
-      onLogin(res.username)
+      saveAuth(res.access_token, res.username, res.role)
+      onLogin(res.username, res.role)
     } catch {
       setError('Incorrect username or password')
     } finally {

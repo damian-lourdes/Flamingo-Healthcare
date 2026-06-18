@@ -9,10 +9,11 @@ import { BroadcastPage }    from './pages/Broadcast'
 import { PersonalisedPage } from './pages/Personalised'
 import { AutomationsPage }  from './pages/Automations'
 import { LeadsPage }       from './pages/Leads'
+import { StaffPage }       from './pages/Staff'
 import {
   api, getStatus, onStatusChange, onAuthChange,
-  isLoggedIn, getUser, clearAuth,
-  type BackendStatus,
+  isLoggedIn, getUser, getRole, clearAuth,
+  type BackendStatus, type Role,
 } from './api/client'
 import type { Page } from './types'
 
@@ -25,11 +26,13 @@ const PAGE_META: Record<Page, [string, string]> = {
   personalised:['Personalised',      'Birthday, anniversary, custom messages'],
   leads:       ['Leads', 'Lead pipeline & enquiry tracking'],
   automations: ['Message Templates', 'Every outgoing WhatsApp message — full library'],
+  staff:       ['Staff',             'Manage dashboard accounts & access'],
 }
 
 export default function App() {
   const [loggedIn, setLoggedIn]         = useState(isLoggedIn())
   const [username, setUsername]         = useState(getUser() ?? '')
+  const [role, setRole]                 = useState<Role | null>(getRole())
   const [page, setPage]                 = useState<Page>('overview')
   const [status, setStatus]             = useState<BackendStatus>(getStatus())
   const [callbackCount, setCallbackCount] = useState(0)
@@ -39,6 +42,7 @@ export default function App() {
   useEffect(() => onAuthChange(() => {
     setLoggedIn(false)
     setUsername('')
+    setRole(null)
   }), [])
 
   // Backend status
@@ -63,8 +67,9 @@ export default function App() {
     return () => clearInterval(t)
   }, [loggedIn])
 
-  const handleLogin = (user: string) => {
+  const handleLogin = (user: string, userRole: Role) => {
     setUsername(user)
+    setRole(userRole)
     setLoggedIn(true)
   }
 
@@ -72,6 +77,7 @@ export default function App() {
     clearAuth()
     setLoggedIn(false)
     setUsername('')
+    setRole(null)
     setPage('overview')
   }
 
@@ -94,6 +100,7 @@ export default function App() {
         callbackCount={callbackCount}
         followupCount={followupCount}
         username={username}
+        role={role}
         onLogout={handleLogout}
       />
 
@@ -119,6 +126,7 @@ export default function App() {
           {page === 'personalised' && <PersonalisedPage />}
           {page === 'automations'  && <AutomationsPage />}
           {page === 'leads'        && <LeadsPage />}
+          {page === 'staff' && role === 'admin' && <StaffPage />}
         </div>
       </div>
     </div>

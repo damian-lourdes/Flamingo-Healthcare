@@ -10,8 +10,9 @@ import type {
   OutboundMessage, DashboardState, DialerStats,
   CallRecord, CallbackRecord, RecallRecord, FollowUpRecord,
   BroadcastCampaign, PatientProfile, SuccessResponse, BroadcastSendResult,
-  BroadcastList, BroadcastListMember,
+  BroadcastList, BroadcastListMember, StaffUser, Role,
 } from '../types'
+export type { Role } from '../types'
 
 // ── API base URL ─────────────────────────────────────────────────────────────
 // Reads VITE_API_URL from the build env (.env.production), falls back to the
@@ -21,9 +22,11 @@ const BASE = import.meta.env.VITE_API_URL ?? 'https://outbound-production-5e64.u
 // ── Token storage ─────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'flamingo_token'
 const USER_KEY  = 'flamingo_user'
+const ROLE_KEY  = 'flamingo_role'
 
 export function getToken(): string | null    { return sessionStorage.getItem(TOKEN_KEY) }
 export function getUser(): string | null     { return sessionStorage.getItem(USER_KEY) }
+export function getRole(): Role | null        { return sessionStorage.getItem(ROLE_KEY) as Role | null }
 export function isLoggedIn(): boolean        { return !!getToken() }
 
 // Builds the URL for the recording-proxy route, used directly as an <audio
@@ -33,14 +36,16 @@ export function recordingUrl(callId: number | string): string {
   return `${BASE}/api/dialer/recording/${callId}?token=${encodeURIComponent(getToken() ?? '')}`
 }
 
-export function saveAuth(token: string, username: string) {
+export function saveAuth(token: string, username: string, role: Role) {
   sessionStorage.setItem(TOKEN_KEY, token)
   sessionStorage.setItem(USER_KEY, username)
+  sessionStorage.setItem(ROLE_KEY, role)
 }
 
 export function clearAuth() {
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(USER_KEY)
+  sessionStorage.removeItem(ROLE_KEY)
 }
 
 // ── Status ────────────────────────────────────────────────────────────────────
@@ -102,7 +107,7 @@ const post = <T>(path: string, body: unknown) =>
 
 // ── Auth endpoints ────────────────────────────────────────────────────────────
 export const authApi = {
-  login: async (username: string, password: string): Promise<{ access_token: string; username: string }> => {
+  login: async (username: string, password: string): Promise<{ access_token: string; username: string; role: Role }> => {
     const r = await fetch(`${BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -111,7 +116,7 @@ export const authApi = {
     if (!r.ok) throw new Error('Incorrect username or password')
     return r.json()
   },
-  me: () => get<{ username: string; authenticated: boolean }>('/auth/me'),
+  me: () => get<{ username: string; authenticated: boolean; role?: Role }>('/auth/me'),
 }
 
 // ── API endpoints (all protected) ─────────────────────────────────────────────
@@ -195,6 +200,13 @@ export const api = {
 
   // Scheduler
   runScheduler:    (job: string) => post<{success: boolean; message: string}>('/api/scheduler/run', { job }),
+
+  // Staff accounts (admin-only — backend enforces this regardless of who calls it)
+  listStaff:    () => get<StaffUser[]>('/api/staff', []),
+  createStaff:  (body: { username: string; password: string; role: Role; displayName?: string }) =>
+    post<{ success: boolean; user?: StaffUser; message?: string }>('/api/staff', body),
+  setStaffActive: (username: string, active: boolean) =>
+    post<SuccessResponse>(`/api/staff/${encodeURIComponent(username)}/active`, { active }),
 }
 
 // ── Demo data (shown when backend offline) ────────────────────────────────────

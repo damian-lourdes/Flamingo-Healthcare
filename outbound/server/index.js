@@ -10,6 +10,7 @@ const config     = require('./config');
 const logger     = require('./middleware/logger');
 const errorHandler = require('./middleware/errorHandler');
 const requireAuth  = require('./middleware/requireAuth');
+const requireRole  = require('./middleware/requireRole');
 const db         = require('./services/db');
 const wa         = require('./services/whatsapp');
 const sync       = require('./services/mocdoc-sync');
@@ -81,10 +82,14 @@ app.use('/auth',           authRoutes);     // alias: POST /auth/login, GET /aut
 app.use('/api/dashboard',  requireAuth, dashboardRoutes); // alias: frontend calls /api/dashboard/*
 app.use('/api/dialer',     dialerRoutes);                 // alias: frontend calls /api/dialer/*
 app.use('/api/engagement', requireAuth, engagementRoutes);
+// broadcast.js gates its own bulk-send/list/history routes to admin
+// internally — /personalised (a single-patient message) stays open to
+// both roles, which is why requireRole isn't applied at this mount level.
 app.use('/api/broadcast',  requireAuth, broadcastRoutes);
-app.use('/api/templates',  requireAuth, require('./routes/templates'));
+app.use('/api/templates',  requireAuth, requireRole('admin'), require('./routes/templates'));
 app.use('/api/leads',      requireAuth, require('./routes/leads'));
-app.use('/api/scheduler',  requireAuth, schedulerRoutes);
+app.use('/api/scheduler',  requireAuth, requireRole('admin'), schedulerRoutes);
+app.use('/api/staff',      requireAuth, requireRole('admin'), require('./routes/staff'));
 
 // Blanket fallback for the original (non-aliased) dashboard paths, e.g.
 // /api/state, /api/patients, /api/doctors, /api/audit-log.

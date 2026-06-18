@@ -130,6 +130,17 @@ export interface BroadcastListMember {
   name: string | null
 }
 
+export type Role = 'admin' | 'front_desk'
+
+export interface StaffUser {
+  id: number
+  username: string
+  role: Role
+  display_name: string | null
+  active: boolean
+  created_at: string
+}
+
 export type Page =
   | 'overview'
   | 'history'
@@ -139,3 +150,4 @@ export type Page =
   | 'personalised'
   | 'automations'
   | 'leads'
+  | 'staff'

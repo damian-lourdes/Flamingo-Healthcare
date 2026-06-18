@@ -1,5 +1,6 @@
 import React from 'react'
 import type { Page } from '../types'
+import type { Role } from '../api/client'
 
 interface Props {
   current: Page
@@ -7,10 +8,11 @@ interface Props {
   callbackCount: number
   followupCount: number
   username: string
+  role: Role | null
   onLogout: () => void
 }
 
-export function Sidebar({ current, onChange, callbackCount, followupCount, username, onLogout }: Props) {
+export function Sidebar({ current, onChange, callbackCount, followupCount, username, role, onLogout }: Props) {
   const item = (page: Page, label: string, badge?: { count: number; color: 'red' | 'amber' }) => (
     <div
       className={`nav-item ${current === page ? 'active' : ''}`}
@@ -48,11 +50,18 @@ export function Sidebar({ current, onChange, callbackCount, followupCount, usern
         {item('leads', 'Leads')}
 
         <div className="nav-section">Broadcast</div>
-        {item('broadcast', 'Campaigns')}
+        {role === 'admin' && item('broadcast', 'Campaigns')}
         {item('personalised', 'Personalised')}
 
         <div className="nav-section">Reference</div>
         {item('automations', 'Message Templates')}
+
+        {role === 'admin' && (
+          <>
+            <div className="nav-section">Admin</div>
+            {item('staff', 'Staff')}
+          </>
+        )}
       </nav>
 
       {/* User + logout */}

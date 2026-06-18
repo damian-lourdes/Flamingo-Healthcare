@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 const config = require('../config');
 
 const pool = new Pool(config.db);
@@ -293,6 +294,26 @@ async function setup() {
       id            SERIAL PRIMARY KEY,
       name          TEXT UNIQUE NOT NULL,
       specialty_id  INTEGER REFERENCES specialties(id),
+      created_by    TEXT DEFAULT 'system',
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      updated_by    TEXT DEFAULT 'system',
+      updated_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ── Staff accounts (replaces the single shared env-var login) ────────────
+    -- One row per dashboard user. role is 'admin' or 'front_desk' — checked
+    -- by middleware/requireRole.js. active lets a departing staff member be
+    -- locked out without deleting their row (keeps audit_log's actor history
+    -- intact). The very first admin row is seeded once, at boot, from the
+    -- legacy DASHBOARD_USERNAME/DASHBOARD_PASSWORD env vars — see
+    -- seedDefaultAdminIfEmpty() below.
+    CREATE TABLE IF NOT EXISTS staff_users (
+      id            SERIAL PRIMARY KEY,
+      username      TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'front_desk',
+      display_name  TEXT,
+      active        BOOLEAN NOT NULL DEFAULT TRUE,
       created_by    TEXT DEFAULT 'system',
       created_at    TIMESTAMPTZ DEFAULT NOW(),
       updated_by    TEXT DEFAULT 'system',
@@ -844,7 +865,9 @@ async function listState() {
   };
 }
 
-setup().catch(err => { console.error('[db] setup failed:', err.message); process.exit(1); });
+setup()
+  .then(() => seedDefaultAdminIfEmpty())
+  .catch(err => { console.error('[db] setup failed:', err.message); process.exit(1); });
 
 // ── Outbound message log (WhatsApp chat history per patient) ──────────────────
 // Every outbound message is stored here for the history view
@@ -1302,6 +1325,56 @@ async function setSetting(key, value, actor = 'dashboard') {
   );
 }
 
+// ── Staff accounts / RBAC ───────────────────────────────────────────────────
+async function getUserByUsername(username) {
+  return q1('SELECT * FROM staff_users WHERE username=$1', [username]);
+}
+
+async function listStaffUsers() {
+  return q('SELECT id, username, role, display_name, active, created_at FROM staff_users ORDER BY created_at ASC');
+}
+
+async function createStaffUser({ username, password, role = 'front_desk', displayName, actor = 'system' }) {
+  const hash = await bcrypt.hash(password, 10);
+  return q1(
+    `INSERT INTO staff_users (username, password_hash, role, display_name, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$5)
+     RETURNING id, username, role, display_name, active, created_at`,
+    [username, hash, role, displayName || username, actor]
+  );
+}
+
+async function setStaffUserActive(username, active, actor = 'system') {
+  await pool.query(
+    `UPDATE staff_users SET active=$2, updated_by=$3, updated_at=NOW() WHERE username=$1`,
+    [username, active, actor]
+  );
+}
+
+// Checks a login attempt against the staff_users table. Returns the user
+// row on success (caller picks out username/role for the token), or null
+// for a wrong password, unknown username, or a deactivated account.
+async function verifyStaffUser(username, password) {
+  const user = await getUserByUsername(username);
+  if (!user || !user.active) return null;
+  const ok = await bcrypt.compare(password, user.password_hash);
+  return ok ? user : null;
+}
+
+// Runs once at boot. If staff_users is empty (first deploy after this
+// migration, or a fresh database), seeds one admin account from the
+// legacy DASHBOARD_USERNAME/DASHBOARD_PASSWORD env vars so the existing
+// login keeps working — everyone after that gets a real, named account
+// created through POST /api/staff instead of an env var.
+async function seedDefaultAdminIfEmpty() {
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM staff_users');
+  if (rows[0].n > 0) return;
+  const username = process.env.DASHBOARD_USERNAME || 'admin';
+  const password = process.env.DASHBOARD_PASSWORD || 'flamingo123';
+  await createStaffUser({ username, password, role: 'admin', displayName: 'Admin', actor: 'system-bootstrap' });
+  console.log(`[db] Seeded initial admin account "${username}" from DASHBOARD_USERNAME/DASHBOARD_PASSWORD — change this password and create named staff accounts via the Staff page soon.`);
+}
+
 module.exports = {
   pool,  // exported for direct query access in whatsapp.js
   alreadySent, logSent,
@@ -1329,5 +1402,8 @@ module.exports = {
   // Audit log
   logAudit, getAuditLog,
   getSetting, setSetting,
+  // Staff accounts / RBAC
+  getUserByUsername, listStaffUsers, createStaffUser, setStaffUserActive,
+  verifyStaffUser, seedDefaultAdminIfEmpty,
   setup,
 };

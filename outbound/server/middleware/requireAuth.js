@@ -7,7 +7,9 @@
  *   - /health, static assets, SPA fallback.
  *
  * On success, sets req.actor = the logged-in username (used for audit_log
- * entries on master-table writes).
+ * entries on master-table writes) and req.role = their staff role ('admin'
+ * or 'front_desk'), checked by middleware/requireRole.js on routes that
+ * need it.
  */
 const { verify } = require('../routes/auth');
 
@@ -25,5 +27,6 @@ module.exports = function requireAuth(req, res, next) {
   }
 
   req.actor = payload.username;
+  req.role  = payload.role;
   next();
 };
