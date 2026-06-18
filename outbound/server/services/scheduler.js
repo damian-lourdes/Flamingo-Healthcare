@@ -216,43 +216,6 @@ async function runTemplateSync() {
     console.error('[scheduler] Template sync failed:', e.message);
   }
 }
-
-async function runMonthlyBroadcast() {
-  const now = new Date();
-  const ym  = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const trigger = `monthly_health_${ym}`;   // unique per month → natural dedup
-
-  // Opted-in patients who haven't already received THIS month's broadcast
-  const patients = await q(`
-    SELECT phone, name FROM patient_profiles
-    WHERE opt_in = TRUE
-      AND NOT EXISTS (
-        SELECT 1 FROM engagement_log el
-        WHERE el.phone = patient_profiles.phone AND el.trigger_type = $1
-      )
-    LIMIT 10000
-  `, [trigger]);
-  if (!patients.length) return;
-
-  const tip = await db.getSetting('monthly_health_tip', config.monthlyHealthTip);
-  let sent = 0, failed = 0;
-  for (const p of patients) {
-    try {
-      await wa.sendTemplate(
-        p.phone, 'monthly_health_tip', 'en',
-        [p.name || 'there', tip],          // {{1}} = name, {{2}} = tip
-        config.hospital.bookingUrl,        // fills the "Book" button URL
-        { patientName: p.name, triggerType: 'monthly_broadcast' }
-      );
-      await db.logSent(p.phone, trigger);
-      await db.logOutboundMessage({ phone: p.phone, patientName: p.name, triggerType: 'monthly_broadcast', message: tip }).catch(() => {});
-      sent++;
-    } catch { failed++; }
-    await new Promise(r => setTimeout(r, 50)); // pacing; Meta tier limits still apply
-  }
-  await db.logBroadcast({ name: `Monthly Health Tip ${ym}`, message: tip, recipientCount: patients.length, sent, failed }).catch(() => {});
-  console.log(`[scheduler] Monthly broadcast ${ym}: sent ${sent}, failed ${failed}`);
-}
 // ── MASTER DAILY JOB ──────────────────────────────────────────────────────────
 async function runDailyJobs() {
   const now = new Date();
@@ -267,11 +230,6 @@ async function runDailyJobs() {
   if (hour === 9) {
     await runPostVisitReminders();
     await runReEngagement();
-  }
-
-  // Monthly health broadcast — only on the 1st of the month
-  if (now.getDate() === 1) {
-    await runMonthlyBroadcast();
   }
 
   await runTemplateSync();
@@ -309,4 +267,4 @@ function start() {
   }, 10000);
 }
 
-module.exports = { start, runDailyJobs, runBirthdays, runFestivalGreetings, runMonthlyBroadcast, runTemplateSync };
+module.exports = { start, runDailyJobs, runBirthdays, runFestivalGreetings, runTemplateSync };

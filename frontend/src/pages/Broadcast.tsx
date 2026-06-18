@@ -147,11 +147,6 @@ export function BroadcastPage() {
   const [bannerUploading, setBannerUploading] = useState(false)
   const [bannerError, setBannerError]         = useState('')
 
-  // Monthly tip
-  const [mtTip, setMtTip]         = useState('')
-  const [mtLoading, setMtLoading] = useState(false)
-  const [mtResult, setMtResult]   = useState('')
-
   // Lists tab
   const [lists, setLists]           = useState<BroadcastList[]>([])
   const [listName, setListName]     = useState('')
@@ -160,8 +155,6 @@ export function BroadcastPage() {
   const [listInfo, setListInfo]     = useState('')
   const [listResult, setListResult] = useState('')
   const [listLoading, setListLoading] = useState(false)
-  const [fileUploading, setFileUploading] = useState(false)
-  const [fileError, setFileError]   = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [members, setMembers] = useState<Record<number, BroadcastListMember[]>>({})
   const [membersLoading, setMembersLoading] = useState<number | null>(null)
@@ -174,9 +167,6 @@ export function BroadcastPage() {
   const loadHistory = () => api.broadcastHistory().then(setCampaigns)
   useEffect(() => { loadHistory() }, [])
   useEffect(() => { if (tab === 'history') loadHistory() }, [tab])
-  useEffect(() => {
-    if (tab === 'monthly') api.getSetting('monthly_health_tip').then(r => setMtTip(r.value || ''))
-  }, [tab])
   useEffect(() => { if (tab === 'camp') loadTemplates() }, [tab])
 
   const loadLists = () => api.broadcastLists().then(setLists)
@@ -267,27 +257,6 @@ export function BroadcastPage() {
     setListLoading(false)
   }
 
-  // Parses an uploaded Excel/CSV file and drops the result straight into the
-  // same recipients textarea used for manual entry — so staff can review,
-  // fix, or remove rows before saving, exactly like a manual paste would be.
-  const handleListFile = async (file: File | null) => {
-    if (!file) return
-    setFileError(''); setFileUploading(true)
-    const r = await api.parseListFile(file)
-    setFileUploading(false)
-    if (!r.success || !r.rows) {
-      setFileError(r.message || 'Could not read that file')
-      return
-    }
-    const lines = r.rows.map(row => row.name ? `${row.phone},${row.name}` : row.phone).join('\n')
-    setListRecip(lines)
-    setListInfo(
-      `Loaded ${r.rows.length} contact${r.rows.length === 1 ? '' : 's'} from file` +
-      (r.warning ? ` — ${r.warning}` : '') +
-      ' — review below before saving'
-    )
-  }
-
   const sendHT = async () => {
     if (!htMsg || !htRecip) return
     setHtLoading(true)
@@ -306,13 +275,6 @@ export function BroadcastPage() {
     loadHistory()
   }
 
-  const saveMonthly = async () => {
-    setMtLoading(true)
-    const r = await api.setSetting('monthly_health_tip', mtTip)
-    setMtResult((r as any).success === false ? 'Save failed' : 'Saved — used automatically on the 1st of each month')
-    setMtLoading(false)
-  }
-
   const selectedTemplate = templates.find(t => t.name === selTpl)
 
   return (
@@ -322,7 +284,6 @@ export function BroadcastPage() {
           { key: 'health-tip', label: 'Health tip' },
           { key: 'offer',      label: 'Offer / package' },
           { key: 'camp',       label: 'Camp' },
-          { key: 'monthly',    label: 'Monthly tip' },
           { key: 'lists',      label: 'Lists' },
           { key: 'history',    label: 'Campaign history' },
         ]}
@@ -472,21 +433,6 @@ export function BroadcastPage() {
         </div>
       )}
 
-      {tab === 'monthly' && (
-        <div style={{ padding: 16, maxWidth: 640 }}>
-          <div className="form-label" style={{ marginBottom: 4 }}>Monthly health tip</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text3)', marginBottom: 8 }}>
-            Sent automatically to all opted-in patients on the 1st of each month, via the approved <Mono>monthly_health_tip</Mono> template. Edit the tip text below.
-          </div>
-          <textarea className="inp" rows={5} style={{ resize: 'vertical' }} placeholder="e.g. Stay hydrated and aim for 30 minutes of activity daily."
-            value={mtTip} onChange={e => setMtTip(e.target.value)} />
-          <div style={{ marginTop: 10 }}>
-            <Btn variant="primary" loading={mtLoading} onClick={saveMonthly}>Save monthly tip</Btn>
-          </div>
-          {mtResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{mtResult}</div>}
-        </div>
-      )}
-
       {tab === 'lists' && (
         <div style={{ padding: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
@@ -502,23 +448,6 @@ export function BroadcastPage() {
               <div className="form-label" style={{ marginBottom: 4 }}>
                 Recipients <span style={{ color: 'var(--text3)', fontWeight: 400 }}>— one per line: +91XXXXXXXXXX,Name</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <label className="inp" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                  width: 'auto', padding: '6px 12px', fontSize: 12.5,
-                }}>
-                  {fileUploading ? 'Reading file…' : '📄 Upload Excel/CSV'}
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    style={{ display: 'none' }}
-                    disabled={fileUploading}
-                    onChange={e => { handleListFile(e.target.files?.[0] || null); e.target.value = '' }}
-                  />
-                </label>
-                <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>or load below, or type manually</span>
-              </div>
-              {fileError && <div style={{ fontSize: 12, color: 'var(--red, #c0392b)', marginBottom: 6 }}>{fileError}</div>}
               <RecipientPicker onLoad={(text, info) => { setListRecip(text); setListInfo(info) }} />
               <textarea className="inp" rows={6} style={{ resize: 'vertical', fontFamily: "'DM Mono', monospace", fontSize: 13 }}
                 placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
