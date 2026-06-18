@@ -470,6 +470,38 @@ async function setup() {
     ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
     ALTER TABLE broadcast_list_members ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
+    -- Defensive: this table predates the (list_id, phone) primary key being
+    -- added to the CREATE TABLE statement above. Since CREATE TABLE IF NOT
+    -- EXISTS is a no-op on an existing table, any database created before
+    -- that change was made was silently left without the constraint our
+    -- ON CONFLICT (list_id,phone) upserts depend on. This adds it if missing,
+    -- without erroring on databases that already have it.
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'broadcast_list_members'::regclass AND contype = 'p'
+      ) THEN
+        -- Without the constraint, nothing prevented duplicate (list_id,
+        -- phone) rows from accumulating. Keep one row per pair before
+        -- adding the constraint — preferring a row with a name set over
+        -- one without, and otherwise the most recently created row.
+        DELETE FROM broadcast_list_members
+        WHERE ctid IN (
+          SELECT ctid FROM (
+            SELECT ctid,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY list_id, phone
+                     ORDER BY (name IS NOT NULL) DESC, created_at DESC NULLS LAST
+                   ) AS rn
+            FROM broadcast_list_members
+          ) ranked
+          WHERE rn > 1
+        );
+        ALTER TABLE broadcast_list_members ADD PRIMARY KEY (list_id, phone);
+      END IF;
+    END $$;
+
     ALTER TABLE broadcast_campaigns ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'system';
 
     -- ── engagement_log: audit column ──────────────────────────────────────────
