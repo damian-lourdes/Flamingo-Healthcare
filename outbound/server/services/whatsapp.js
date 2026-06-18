@@ -1,7 +1,35 @@
 const config = require('../config');
 const db     = require('./db');
+const fs     = require('fs');
 
 const GRAPH = `https://graph.facebook.com/${config.whatsapp.apiVersion}/${config.whatsapp.phoneNumberId}/messages`;
+const MEDIA_UPLOAD_URL = `https://graph.facebook.com/${config.whatsapp.apiVersion}/${config.whatsapp.phoneNumberId}/media`;
+
+// ── Media upload ──────────────────────────────────────────────────────────────
+// Uploads an image to Meta so it can be sent as a template's header image.
+// Returns a media_id, which is reusable for multiple sends until it expires
+// (Meta media IDs are valid for a limited time — re-upload if a send fails
+// with a media-not-found error).
+async function uploadMedia(filePath, mimeType) {
+  const form = new FormData();
+  const fileBuffer = fs.readFileSync(filePath);
+  const blob = new Blob([fileBuffer], { type: mimeType || 'image/jpeg' });
+  form.append('file', blob, 'upload.jpg');
+  form.append('type', mimeType || 'image/jpeg');
+  form.append('messaging_product', 'whatsapp');
+
+  const r = await fetch(MEDIA_UPLOAD_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.whatsapp.token}` },
+    body: form,
+  });
+  const d = await r.json();
+  if (!r.ok || !d.id) {
+    console.error('[wa] MEDIA UPLOAD FAILED:', JSON.stringify(d?.error || d));
+    throw new Error(d?.error?.message || 'Media upload failed');
+  }
+  return d.id; // media_id
+}
 
 // ── Core send ─────────────────────────────────────────────────────────────────
 async function post(payload) {
@@ -70,8 +98,16 @@ async function sendButtons(to, body, buttons) {
 // Send a Meta-approved template message.
 // Required for marketing/business-initiated messages OUTSIDE the 24-hour window —
 // free text (sendText) will not be delivered there.
-async function sendTemplate(to, templateName, languageCode, bodyParams = [], bookUrlParam = null, { patientName, triggerType } = {}) {
+async function sendTemplate(to, templateName, languageCode, bodyParams = [], bookUrlParam = null, { patientName, triggerType, headerMediaId } = {}) {
   const components = [];
+
+  // Image header — must be the FIRST component if present, per Meta's spec
+  if (headerMediaId) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: 'image', image: { id: headerMediaId } }],
+    });
+  }
 
   // Body variables {{1}}, {{2}}... map in order to bodyParams
   if (bodyParams.length) {
@@ -124,4 +160,4 @@ function getHealth() {
   };
 }
 
-module.exports = { sendText, sendButtons, sendTemplate, getHealth };
+module.exports = { sendText, sendButtons, sendTemplate, uploadMedia, getHealth };

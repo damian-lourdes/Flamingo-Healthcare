@@ -356,7 +356,7 @@ async function sendHealthBroadcast({ recipients, message, campaignName }) {
 }
 
 // Generic template broadcast — paramsFor(name) returns the {{1}},{{2}}… values per recipient
-async function broadcastTemplate({ recipients, templateName, lang = 'en', paramsFor, bookUrl = BOOK, campaignName, logMessage }) {
+async function broadcastTemplate({ recipients, templateName, lang = 'en', paramsFor, bookUrl = BOOK, campaignName, logMessage, headerMediaId }) {
   let sent = 0, failed = 0;
   const broadcastId = await db.createBroadcastCampaign({
     name: campaignName || templateName, message: logMessage || templateName,
@@ -365,7 +365,7 @@ async function broadcastTemplate({ recipients, templateName, lang = 'en', params
   for (const { phone, name } of recipients) {
     try {
       await wa.sendTemplate(phone, templateName, lang, paramsFor(name), bookUrl,
-        { patientName: name, triggerType: 'broadcast' });
+        { patientName: name, triggerType: 'broadcast', headerMediaId });
       await db.logSent(phone, `broadcast_${Date.now()}`);
       await db.logOutboundMessage({ phone, patientName: name, triggerType: 'broadcast', message: logMessage, broadcastId }).catch(() => {});
       await db.upsertPatient({ phone, name }).catch(() => {});

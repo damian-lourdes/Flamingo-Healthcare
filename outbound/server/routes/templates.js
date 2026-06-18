@@ -3,6 +3,11 @@ const router = express.Router();
 const templates = require('../services/templates');
 const engagement = require('../services/engagement');
 const db = require('../services/db');
+const multer = require('multer');
+const wa = require('../services/whatsapp');
+const fs = require('fs');
+
+const upload = multer({ dest: '/tmp/uploads/', limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB cap
 
 // POST /api/templates/sync — pull latest from Meta into the local cache
 router.post('/sync', async (req, res, next) => {
@@ -23,14 +28,47 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/templates/send — send any cached approved template to a recipient list
+// POST /api/templates/upload-image — uploads a banner image to Meta, returns
+// a media_id the frontend holds onto and includes when calling /send.
+router.post('/upload-image', (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'Image too large (max 5MB)' : err.message;
+      return res.status(400).json({ success: false, message: msg });
+    }
+    if (err) return res.status(400).json({ success: false, message: 'Invalid upload' });
+    next();
+  });
+}, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image file received' });
+    const mediaId = await wa.uploadMedia(req.file.path, req.file.mimetype);
+    fs.unlink(req.file.path, () => {}); // cleanup temp file, fire-and-forget
+    res.json({ success: true, mediaId });
+  } catch (e) {
+    res.status(502).json({ success: false, message: e.message || 'Upload to Meta failed' });
+  }
+});
+
+// POST /api/templates/send — send any cached approved template to a recipient list.
+// `params` = fixed placeholder values AFTER {{1}}; {{1}} is always the patient's
+// name and is filled per-recipient automatically by broadcastTemplate's paramsFor.
 router.post('/send', async (req, res, next) => {
   try {
-    const { name, language, params, recipients } = req.body;
+    const { name, language, params, recipients, headerMediaId } = req.body;
     if (!name || !Array.isArray(recipients) || !recipients.length) {
       return res.status(400).json({ success: false, message: 'name and recipients[] required' });
     }
-    const result = await engagement.broadcastTemplate({ templateName: name, language: language || 'en', params: params || [], recipients });
+    const fixedParams = Array.isArray(params) ? params : [];
+    const result = await engagement.broadcastTemplate({
+      recipients,
+      templateName: name,
+      lang: language || 'en',
+      paramsFor: (patientName) => [patientName || 'there', ...fixedParams],
+      campaignName: req.body.campaignName || name,
+      logMessage: req.body.logMessage || `Template send: ${name}`,
+      headerMediaId,
+    });
     await db.logAudit({ actor: req.actor || 'dashboard', action: 'send', entity: 'broadcast_template', entityId: name, after: { recipients: recipients.length } });
     res.json({ success: true, ...result });
   } catch (e) { next(e); }
