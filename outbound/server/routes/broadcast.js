@@ -33,6 +33,18 @@ const PHONE_WORDS      = ['no', 'ph', 'tel', 'cell', 'wa'];
 const NAME_SPECIFIC = ['patient', 'customer'];
 const NAME_GENERIC  = ['name'];
 
+// ID-style columns (Patient ID, MRN, UHID, Reg No...) get excluded from
+// name-column matching entirely. Without this, "Patient ID" would match
+// the NAME_SPECIFIC 'patient' check and get mistaken for the name column
+// if it happens to appear before the real "Patient Name" column.
+const ID_TERMS = ['id', 'no', 'number', 'code', 'reg', 'mrn', 'uhid'];
+
+function isLikelyIdColumn(header) {
+  const lower = header.trim().toLowerCase();
+  if (lower.includes('name')) return false; // 'name' is a strong enough signal to override
+  return ID_TERMS.some(t => lower.includes(t));
+}
+
 function wordsOf(h) {
   return h.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
@@ -54,7 +66,7 @@ function findPhoneCol(headers, sampleRow) {
 }
 
 function findNameCol(headers, excludeCol) {
-  const candidates = headers.filter(h => h !== excludeCol);
+  const candidates = headers.filter(h => h !== excludeCol && !isLikelyIdColumn(h));
   const lower = candidates.map(h => h.trim().toLowerCase());
   for (let i = 0; i < lower.length; i++) {
     if (NAME_SPECIFIC.some(s => lower[i].includes(s))) return candidates[i];
