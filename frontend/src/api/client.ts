@@ -159,6 +159,10 @@ export const api = {
   broadcastListMembers: (id: number) => get<BroadcastListMember[]>(`/api/broadcast/lists/${id}/members`, []),
   createBroadcastList: (body: { name: string; description?: string; phones: (string | { phone: string; name?: string })[] }) =>
     post<{ success: boolean; id: number }>('/api/broadcast/lists', body),
+  updateBroadcastList: (id: number, body: { name: string; description?: string; phones: (string | { phone: string; name?: string })[] }) =>
+    safeFetch<{ success: boolean; message?: string }>(`/api/broadcast/lists/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteBroadcastList: (id: number) =>
+    safeFetch<{ success: boolean; message?: string }>(`/api/broadcast/lists/${id}`, { method: 'DELETE' }),
   // Uploads an Excel/CSV file, returns parsed {phone, name} rows for review
   // before saving — nothing is saved to a list as part of this call.
   parseListFile: (file: File) => {

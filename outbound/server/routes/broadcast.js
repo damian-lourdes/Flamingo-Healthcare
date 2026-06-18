@@ -114,6 +114,21 @@ router.post('/lists', adminOnly, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+router.put('/lists/:id', adminOnly, async (req, res, next) => {
+  try {
+    const { name, description, phones } = req.body;
+    await db.updateBroadcastList(req.params.id, { name, description, phones: phones || [] });
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
+router.delete('/lists/:id', adminOnly, async (req, res, next) => {
+  try {
+    await db.deleteBroadcastList(req.params.id);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
 router.get('/lists/:id/members', adminOnly, async (req, res, next) => {
   try { res.json(await db.getBroadcastListMembers(req.params.id)); }
   catch (e) { next(e); }

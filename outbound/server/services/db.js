@@ -1156,28 +1156,54 @@ async function getBroadcastLists() {
   `);
 }
 
-async function createBroadcastList({ name, description, phones }) {
-  const res = await pool.query(
-    'INSERT INTO broadcast_lists(name, description) VALUES($1,$2) RETURNING id',
-    [name, description||null]
-  );
-  const id = res.rows[0].id;
+// Shared by createBroadcastList and updateBroadcastList — inserts members
+// for a given list. Accepts either bare phone strings (legacy callers) or
+// {phone, name} objects, so contacts without a matching patient record
+// (e.g. staff, referrers) still get their name saved.
+async function insertListMembers(listId, phones) {
   for (const p of phones) {
-    // Accepts either a bare phone string (legacy callers) or a
-    // {phone, name} object (so contacts without a matching patient
-    // record — e.g. staff, referrers — still get their name saved).
     const phone = typeof p === 'string' ? p : p.phone;
     const memberName = typeof p === 'string' ? null : (p.name || null);
     const patientId = await resolvePatientId(phone);
     await pool.query(
       `INSERT INTO broadcast_list_members(list_id,phone,patient_id,name) VALUES($1,$2,$3,$4)
        ON CONFLICT (list_id,phone) DO UPDATE SET name = COALESCE(EXCLUDED.name, broadcast_list_members.name)`,
-      [id, phone, patientId, memberName]
+      [listId, phone, patientId, memberName]
     );
   }
+}
+
+async function createBroadcastList({ name, description, phones }) {
+  const res = await pool.query(
+    'INSERT INTO broadcast_lists(name, description) VALUES($1,$2) RETURNING id',
+    [name, description||null]
+  );
+  const id = res.rows[0].id;
+  await insertListMembers(id, phones);
   await logAudit({ actor: 'system', action: 'create', entity: 'broadcast_lists', entityId: id,
     after: { name, description, member_count: phones.length } });
   return id;
+}
+
+// Updates a list's name/description and replaces its entire member set —
+// simpler and less error-prone than diffing add/remove, since the frontend
+// always has the full intended recipient list in hand at save time anyway.
+async function updateBroadcastList(id, { name, description, phones }) {
+  await pool.query(
+    'UPDATE broadcast_lists SET name=$1, description=$2 WHERE id=$3',
+    [name, description||null, id]
+  );
+  await pool.query('DELETE FROM broadcast_list_members WHERE list_id=$1', [id]);
+  await insertListMembers(id, phones);
+  await logAudit({ actor: 'system', action: 'update', entity: 'broadcast_lists', entityId: id,
+    after: { name, description, member_count: phones.length } });
+}
+
+async function deleteBroadcastList(id) {
+  // broadcast_list_members has ON DELETE CASCADE via its FK to
+  // broadcast_lists, so members are removed automatically.
+  await pool.query('DELETE FROM broadcast_lists WHERE id=$1', [id]);
+  await logAudit({ actor: 'system', action: 'delete', entity: 'broadcast_lists', entityId: id });
 }
 
 async function getBroadcastListMembers(listId) {
@@ -1393,7 +1419,7 @@ module.exports = {
   logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
   upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
   logBill, getBills, getRecentBills,
-  getBroadcastLists, createBroadcastList, getBroadcastListMembers,
+  getBroadcastLists, createBroadcastList, updateBroadcastList, deleteBroadcastList, getBroadcastListMembers,
   logBroadcast, getBroadcastHistory,
   createBroadcastCampaign, updateBroadcastCounts, getBroadcastMessages,
   // Consent tracking (DPDP Act)

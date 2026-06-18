@@ -158,6 +158,8 @@ export function BroadcastPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [members, setMembers] = useState<Record<number, BroadcastListMember[]>>({})
   const [membersLoading, setMembersLoading] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [fileUploading, setFileUploading] = useState(false)
   const [fileError, setFileError]   = useState('')
 
@@ -248,15 +250,54 @@ export function BroadcastPage() {
     if (!listName || !listRecip) return
     setListLoading(true)
     const recipients = parseRecipients(listRecip)
-    const r = await api.createBroadcastList({ name: listName, description: listDesc || undefined, phones: recipients })
+    const r = editingId
+      ? await api.updateBroadcastList(editingId, { name: listName, description: listDesc || undefined, phones: recipients })
+      : await api.createBroadcastList({ name: listName, description: listDesc || undefined, phones: recipients })
     if ((r as any).success === false) {
       setListResult('Save failed')
     } else {
-      setListResult(`Saved "${listName}" with ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}`)
-      setListName(''); setListDesc(''); setListRecip(''); setListInfo('')
+      setListResult(editingId
+        ? `Updated "${listName}" — ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}`
+        : `Saved "${listName}" with ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}`)
+      setListName(''); setListDesc(''); setListRecip(''); setListInfo(''); setEditingId(null)
+      // Editing a list whose members panel was open would otherwise show
+      // stale data, so drop any cached members for this id and force a
+      // re-fetch next time it's expanded.
+      if (editingId) setMembers(m => { const next = { ...m }; delete next[editingId]; return next })
       loadLists()
     }
     setListLoading(false)
+  }
+
+  // Loads a list's current name/description/members into the form fields so
+  // they can be changed and re-saved via the same createList/updateBroadcastList path.
+  const startEditList = async (list: BroadcastList) => {
+    setEditingId(list.id)
+    setListName(list.name || '')
+    setListDesc(list.description || '')
+    setListResult('')
+    setListInfo('Loading current recipients…')
+    const rows = await api.broadcastListMembers(list.id)
+    setListRecip(rows.map(r => r.name ? `${r.phone},${r.name}` : r.phone).join('\n'))
+    setListInfo(`Editing "${list.name}" — ${rows.length} recipient${rows.length === 1 ? '' : 's'} loaded`)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setListName(''); setListDesc(''); setListRecip(''); setListInfo(''); setListResult('')
+  }
+
+  const deleteList = async (list: BroadcastList) => {
+    if (!window.confirm(`Delete "${list.name}"? This can't be undone.`)) return
+    setDeletingId(list.id)
+    const r = await api.deleteBroadcastList(list.id)
+    setDeletingId(null)
+    if ((r as any).success === false) {
+      setListResult('Delete failed')
+      return
+    }
+    if (editingId === list.id) cancelEdit()
+    loadLists()
   }
 
   // Parses an uploaded Excel/CSV file and drops the result straight into the
@@ -493,8 +534,11 @@ export function BroadcastPage() {
                 placeholder={"+919XXXXXXXXX,Ravi Kumar\n+919XXXXXXXXX,Priya Nair"}
                 value={listRecip} onChange={e => { setListRecip(e.target.value); setListInfo('') }} />
               {listInfo && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>{listInfo}</div>}
-              <div style={{ marginTop: 10 }}>
-                <Btn variant="primary" style={{ width: '100%' }} loading={listLoading} onClick={createList}>Save list</Btn>
+              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <Btn variant="primary" style={{ width: '100%' }} loading={listLoading} onClick={createList}>
+                  {editingId ? 'Update list' : 'Save list'}
+                </Btn>
+                {editingId && <Btn variant="sm" onClick={cancelEdit}>Cancel</Btn>}
               </div>
               {listResult && <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--text2)' }}>{listResult}</div>}
             </div>
@@ -516,9 +560,13 @@ export function BroadcastPage() {
                         <td><Mono>{l.phone_count}</Mono></td>
                         <td><Mono>{ago(l.created_at)}</Mono></td>
                         <td>
-                          <Btn variant="sm" loading={membersLoading === l.id} onClick={() => toggleMembers(l.id)}>
-                            {expandedId === l.id ? 'Hide' : 'View'} members
-                          </Btn>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <Btn variant="sm" loading={membersLoading === l.id} onClick={() => toggleMembers(l.id)}>
+                              {expandedId === l.id ? 'Hide' : 'View'} members
+                            </Btn>
+                            <Btn variant="sm" onClick={() => startEditList(l)}>Edit</Btn>
+                            <Btn variant="sm" loading={deletingId === l.id} onClick={() => deleteList(l)}>Delete</Btn>
+                          </div>
                         </td>
                       </tr>
                       {expandedId === l.id && (
