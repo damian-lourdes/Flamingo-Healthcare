@@ -148,7 +148,7 @@ router.get('/call', async (req, res) => {
     const payload = {
       CallSid:    d.CallSid,
       From:       d.CallFrom || d.From,
-      Status:     d.DialCallStatus || d.CallType,
+      Status:     d.DialCallStatus || d.Status || d.CallType,
       Duration:   d.DialCallDuration,
       To:         d.CallTo || d.To,
       CallType:   d.CallType,
