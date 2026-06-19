@@ -71,4 +71,17 @@ async function listCached({ approvedOnly = false } = {}) {
   return rows.rows.map(r => ({ ...r, examples: typeof r.examples === 'string' ? JSON.parse(r.examples) : r.examples }));
 }
 
-module.exports = { syncTemplates, listCached };
+// Looks up a single template's raw body_text (with {{n}} placeholders still
+// in place) by name + language. Used to render the real, personalized
+// message text for Message History — without this, that view only ever
+// showed a generic "Template send: <name>" placeholder instead of what the
+// recipient actually received.
+async function getTemplateBodyText(name, language = 'en') {
+  const row = await db.pool.query(
+    `SELECT body_text FROM whatsapp_templates WHERE name = $1 AND language = $2 LIMIT 1`,
+    [name, language]
+  );
+  return row.rows[0]?.body_text || null;
+}
+
+module.exports = { syncTemplates, listCached, getTemplateBodyText };

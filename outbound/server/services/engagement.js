@@ -355,8 +355,24 @@ async function sendHealthBroadcast({ recipients, message, campaignName }) {
   return { sent, failed, broadcastId };
 }
 
-// Generic template broadcast — paramsFor(name) returns the {{1}},{{2}}… values per recipient
-async function broadcastTemplate({ recipients, templateName, lang = 'en', paramsFor, bookUrl = BOOK, campaignName, logMessage, headerMediaId }) {
+// Renders a template's raw body_text (with {{1}}, {{2}}... placeholders)
+// into the actual text a given recipient receives — mirrors the frontend's
+// renderTemplatePreview() in utils.ts so Message History shows exactly what
+// was sent, not a generic "Template send: <name>" placeholder.
+function renderTemplateBody(bodyText, params) {
+  if (!bodyText) return null;
+  return bodyText.replace(/\{\{(\d+)\}\}/g, (_, n) => {
+    const i = parseInt(n, 10) - 1;
+    const v = params[i];
+    return (v !== undefined && v !== null && String(v).trim()) ? String(v) : `{{${n}}}`;
+  });
+}
+
+// Generic template broadcast — paramsFor(name) returns the {{1}},{{2}}… values per recipient.
+// bodyText (optional): the template's raw body with {{n}} placeholders — when
+// provided, each recipient's actual rendered message is logged to Message
+// History instead of the generic logMessage/templateName fallback.
+async function broadcastTemplate({ recipients, templateName, lang = 'en', paramsFor, bookUrl = BOOK, campaignName, logMessage, headerMediaId, bodyText }) {
   let sent = 0, failed = 0;
   const broadcastId = await db.createBroadcastCampaign({
     name: campaignName || templateName, message: logMessage || templateName,
@@ -364,10 +380,15 @@ async function broadcastTemplate({ recipients, templateName, lang = 'en', params
   }).catch(() => null);
   for (const { phone, name } of recipients) {
     try {
-      await wa.sendTemplate(phone, templateName, lang, paramsFor(name), bookUrl,
+      const params = paramsFor(name);
+      await wa.sendTemplate(phone, templateName, lang, params, bookUrl,
         { patientName: name, triggerType: 'broadcast', headerMediaId });
       await db.logSent(phone, `broadcast_${Date.now()}`);
-      await db.logOutboundMessage({ phone, patientName: name, triggerType: 'broadcast', message: logMessage, broadcastId }).catch(() => {});
+      // Prefer the real rendered message text (what the recipient actually
+      // received) over the generic logMessage fallback, when we have the
+      // template's body_text to render it with.
+      const renderedMessage = renderTemplateBody(bodyText, params) || logMessage || templateName;
+      await db.logOutboundMessage({ phone, patientName: name, triggerType: 'broadcast', message: renderedMessage, broadcastId }).catch(() => {});
       await db.upsertPatient({ phone, name }).catch(() => {});
       sent++;
     } catch { failed++; }

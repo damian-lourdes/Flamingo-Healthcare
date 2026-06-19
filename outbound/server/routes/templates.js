@@ -60,6 +60,10 @@ router.post('/send', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'name and recipients[] required' });
     }
     const fixedParams = Array.isArray(params) ? params : [];
+    // Fetch the template's raw body_text so broadcastTemplate can log each
+    // recipient's actual rendered message to Message History, instead of
+    // the generic "Template send: <name>" placeholder.
+    const bodyText = await templates.getTemplateBodyText(name, language || 'en').catch(() => null);
     const result = await engagement.broadcastTemplate({
       recipients,
       templateName: name,
@@ -68,6 +72,7 @@ router.post('/send', async (req, res, next) => {
       campaignName: req.body.campaignName || name,
       logMessage: req.body.logMessage || `Template send: ${name}`,
       headerMediaId,
+      bodyText,
     });
     await db.logAudit({ actor: req.actor || 'dashboard', action: 'send', entity: 'broadcast_template', entityId: name, after: { recipients: recipients.length } });
     res.json({ success: true, ...result });
