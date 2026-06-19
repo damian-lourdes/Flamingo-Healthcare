@@ -272,7 +272,11 @@ async function onMissedCall({ phone, callerName }) {
     `Our team will call you back shortly.\n\n` +
     `📞 044-2658 2424 / +91 9150565888\n` +
     `📅 Book online: ${BOOK}`;
-  await send(phone, 'missed_call_wa', () => wa.sendText(phone, msg), 1, null, callerName, msg);
+  // No dedup window (0 hours) — every missed call gets its own message, even
+  // repeat calls from the same number within the same hour. A genuinely
+  // worried patient calling back multiple times because nobody answered
+  // should keep getting acknowledged, not go silent after the first one.
+  await send(phone, 'missed_call_wa', () => wa.sendText(phone, msg), 0, null, callerName, msg);
 }
 
 // Background jobs
