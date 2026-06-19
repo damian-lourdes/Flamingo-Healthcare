@@ -16,7 +16,9 @@ export function OverviewPage() {
   const ds = state?.dialer_stats
   const engTotal = (state?.engagement_stats ?? []).reduce((s, r) => s + r.n, 0)
 
-  // ── Delivery stats
+  // ── Delivery stats — calculation kept (backend still tracks this data via
+  // state.delivery_stats), only the display card below was removed per
+  // request. Re-add the Card block further down to restore the view.
   const delivery = state?.delivery_stats ?? {}
   const dlSent      = delivery['sent']      || 0
   const dlDelivered = delivery['delivered'] || 0
@@ -48,23 +50,11 @@ export function OverviewPage() {
         </div>
       )}
 
-      {state && state.outbound_healthy && !state.whatsapp_healthy && (
-        <div style={{
-          background: 'rgba(217,92,0,0.08)', border: '1px solid rgba(217,92,0,0.3)',
-          borderRadius: 8, padding: '10px 14px', marginBottom: 12,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <span style={{ fontSize: 18 }}>⚠️</span>
-          <div>
-            <div style={{ fontWeight: 600, color: 'var(--orange)', fontSize: 14 }}>
-              WhatsApp sending errors detected
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>
-              {state.whatsapp_error || 'Multiple consecutive WhatsApp send failures detected. Check Meta API credentials and token validity.'}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* "WhatsApp sending errors detected" banner removed per request —
+          state.whatsapp_healthy / state.whatsapp_error are still tracked by
+          the backend, only this display block was taken out. To restore,
+          re-add the {state && state.outbound_healthy && !state.whatsapp_healthy && (...)}
+          block that used to sit here. */}
 
       {/* ── Stat grid ── */}
       <div className="stat-grid">
@@ -99,24 +89,11 @@ export function OverviewPage() {
 
         {/* ── Right column ── */}
         <div>
-          {/* Delivery stats */}
-          {dlTotal > 0 && (
-            <Card title="Message delivery (7 days)" subtitle={dlRate !== null ? `${dlRate}% delivery rate` : ''} style={{ marginBottom: 12 }}>
-              <div style={{ padding: '12px 14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                {[
-                  { label: 'Delivered', value: dlDelivered, color: 'var(--teal)' },
-                  { label: 'Read',      value: dlRead,      color: 'var(--blue)' },
-                  { label: 'Sent',      value: dlSent,      color: 'var(--text2)' },
-                  { label: 'Failed',    value: dlFailed,    color: 'var(--red)' },
-                ].map(s => (
-                  <div key={s.label} style={{ textAlign: 'center', padding: '8px', background: 'var(--bg3)', borderRadius: 8 }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.value}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text2)', marginTop: 2 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          {/* "Message delivery (7 days)" card removed per request — dlSent/
+              dlDelivered/dlRead/dlFailed/dlTotal/dlRate are still computed
+              above (backend data still tracked), only this display Card was
+              taken out. To restore, re-add the {dlTotal > 0 && (<Card .../>)}
+              block that used to sit here. */}
 
           {/* Recent calls */}
           <Card title="Recent calls">
