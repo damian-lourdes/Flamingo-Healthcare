@@ -38,7 +38,13 @@ export function HistoryPage() {
   const loadThread = async (phone: string) => {
     setSelectedPhone(phone)
     const msgs = await api.patientHistory(phone)
-    setThread(msgs)
+    // The backend returns newest-first (for the "most recent contact" sort
+    // used elsewhere), but a chat thread reads top-to-bottom as oldest-first,
+    // newest-at-the-bottom — the same convention as WhatsApp itself. Sort
+    // here rather than relying on API order, since that order is meant for
+    // a different use case (the patient list's "last contacted" sort).
+    const sorted = [...msgs].sort((a, b) => (a.sent_at ?? '').localeCompare(b.sent_at ?? ''))
+    setThread(sorted)
     setTimeout(() => {
       const el = document.getElementById('hist-thread-inner')
       if (el) el.scrollTop = el.scrollHeight
@@ -100,7 +106,11 @@ export function HistoryPage() {
           }
         </div>
 
-        {/* Message thread */}
+        {/* Message thread — outbound-only, so every bubble is "ours" and
+            right-aligned, same convention as WhatsApp's own UI. justify-content
+            is also set inline here (not just via the .msg-row CSS class) as a
+            safety net, since the class-based rule alone wasn't visibly taking
+            effect in production. */}
         <div className="hist-thread" id="hist-thread-inner">
           {!selectedPhone
             ? <div className="empty" style={{ margin: 'auto' }}>Select a patient to view messages</div>
@@ -110,7 +120,7 @@ export function HistoryPage() {
               <div key={date}>
                 <div className="date-divider">{date}</div>
                 {msgs.map(m => (
-                  <div key={m.id} className="msg-row">
+                  <div key={m.id} className="msg-row" style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
                     <div>
                       <div className="trigger-pill">{fmtTrigger(m.trigger_type)}</div>
                       <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: m.message.replace(/\n/g, '<br/>') }} />
