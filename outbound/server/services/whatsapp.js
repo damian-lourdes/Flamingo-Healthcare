@@ -32,6 +32,13 @@ async function uploadMedia(filePath, mimeType) {
 }
 
 // ── Core send ─────────────────────────────────────────────────────────────────
+// Throws on any non-2xx response from Meta so callers' existing try/catch
+// blocks (every caller in the codebase already has one — verified before
+// making this change) correctly treat a rejected send as a failure, instead
+// of silently logging the error and continuing as if it succeeded. Previously
+// this function only logged failures to console and returned the error body,
+// which meant every "sent" counter across the app (broadcasts, dialer
+// thank-you messages, etc.) counted failed sends as successful.
 async function post(payload) {
   const r = await fetch(GRAPH, {
     method:  'POST',
@@ -46,12 +53,15 @@ async function post(payload) {
     healthState.lastError     = d?.error?.message || 'Send failed';
     healthState.lastErrorAt   = new Date().toISOString();
     healthState.consecutiveFails++;
-  } else {
-    const msgId = d?.messages?.[0]?.id;
-    console.log(`[wa] ✓ sent to ${payload.to} msgId:${msgId}`);
-    healthState.consecutiveFails = 0;
-    healthState.lastSuccess       = new Date().toISOString();
+    const err = new Error(d?.error?.message || `WhatsApp send failed (HTTP ${r.status})`);
+    err.metaError = d?.error || d;
+    err.httpStatus = r.status;
+    throw err;
   }
+  const msgId = d?.messages?.[0]?.id;
+  console.log(`[wa] ✓ sent to ${payload.to} msgId:${msgId}`);
+  healthState.consecutiveFails = 0;
+  healthState.lastSuccess       = new Date().toISOString();
   return d;
 }
 

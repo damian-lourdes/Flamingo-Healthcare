@@ -73,6 +73,14 @@ router.post('/send', async (req, res, next) => {
       logMessage: req.body.logMessage || `Template send: ${name}`,
       headerMediaId,
       bodyText,
+      // This route sends ANY approved template a user picks — many (e.g.
+      // welcome, appointment) have no button component at all. Unlike
+      // sendHealthTip/sendOfferTemplate/sendCampInfo, which are each tied to
+      // one specific template known to have a "Book" button, this path can't
+      // assume one exists, so it must not auto-attach the button parameter.
+      // Meta rejects template sends with a button parameter when the
+      // template itself has no button component (error 132018).
+      bookUrl: null,
     });
     await db.logAudit({ actor: req.actor || 'dashboard', action: 'send', entity: 'broadcast_template', entityId: name, after: { recipients: recipients.length } });
     res.json({ success: true, ...result });
