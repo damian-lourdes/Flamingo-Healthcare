@@ -393,6 +393,21 @@ async function setup() {
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS updated_by   TEXT DEFAULT 'system';
     ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS updated_at   TIMESTAMPTZ DEFAULT NOW();
 
+    -- ── patient_profiles: CRM lead-tracking fields ────────────────────────────
+    -- Lets a phone number be tracked as a 'lead' (enquiry/walk-in/referral
+    -- not yet a registered patient) before converting to 'patient' once they
+    -- actually visit. Powers the Leads pipeline page and tagLead()/
+    -- convertLead() below, called from the Dialer webhook (calls), the
+    -- Leads API (manual walk-ins), and MocDoc sync (auto-capture).
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lifecycle_stage TEXT DEFAULT 'patient';
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_status     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_source     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS referred_by     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS assigned_to     TEXT;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS next_action_at  TIMESTAMPTZ;
+    ALTER TABLE patient_profiles ADD COLUMN IF NOT EXISTS lead_notes      TEXT;
+    CREATE INDEX IF NOT EXISTS idx_pp_lead ON patient_profiles(lifecycle_stage, lead_status, next_action_at);
+
     -- ── dialer_calls: link to patient once identified, audit columns ─────────
     ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS patient_id INTEGER REFERENCES patient_profiles(id);
     ALTER TABLE dialer_calls ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT 'dialer-webhook';
@@ -760,6 +775,30 @@ async function deriveNoShows() {
 
 const markNoShowRecovered = id =>
   pool.query("UPDATE follow_up_queue SET status='recovered' WHERE id=$1",[id]);
+
+// ── CRM lead tracking ─────────────────────────────────────────────────────────
+// Records or updates a phone number as a 'lead' — used by the Dialer webhook
+// (inbound calls), the Leads API (manual walk-ins), and MocDoc sync
+// (auto-capture). onlyIfNew=true (used by call/sync auto-capture) avoids
+// downgrading an already-converted patient back to lead status; the Leads
+// page's manual "add lead" flow omits it so staff can deliberately tag.
+async function tagLead({ phone, name, source, referredBy = null, status = 'new', onlyIfNew = false }) {
+  await pool.query(
+    `INSERT INTO patient_profiles (phone, name, lifecycle_stage, lead_status, lead_source, referred_by)
+     VALUES ($1, $2, 'lead', $3, $4, $5)
+     ON CONFLICT (phone) DO UPDATE SET
+       name        = COALESCE(patient_profiles.name, EXCLUDED.name),
+       lead_source = COALESCE(patient_profiles.lead_source, EXCLUDED.lead_source),
+       referred_by = COALESCE(patient_profiles.referred_by, EXCLUDED.referred_by),
+       lifecycle_stage = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
+                              THEN patient_profiles.lifecycle_stage ELSE 'lead' END,
+       lead_status = CASE WHEN $6 AND patient_profiles.lifecycle_stage = 'patient'
+                          THEN patient_profiles.lead_status ELSE COALESCE(patient_profiles.lead_status, $7) END`,
+    [phone, name || null, status, source, referredBy, onlyIfNew, status]);
+}
+async function convertLead({ phone }) {
+  await pool.query(`UPDATE patient_profiles SET lifecycle_stage='patient', lead_status='converted' WHERE phone=$1`, [phone]);
+}
 
 // ── Dialer ────────────────────────────────────────────────────────────────────
 async function logCall({phone, callerName, durationSec, status, agent, notes, refId}) {
@@ -1447,6 +1486,7 @@ module.exports = {
   scheduleDelayedMessage, getDueDelayedMessages, markDelayedMessageSent, markDelayedMessageFailed,
   addNoShow, getPendingNoShows, markNoShowRecovered, deriveNoShows,
   logCall, getCalls, getCallbackQueue, markCallbackDone, getDialerStats,
+  tagLead, convertLead,
   listState,
   logOutboundMessage, getOutboundHistory, getOutboundByDate, getPatientMessageHistory,
   upsertPatient, logVisit, getVisits, getPatients, getBirthdaysToday,
