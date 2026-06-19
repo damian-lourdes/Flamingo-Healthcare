@@ -120,8 +120,8 @@ export function HistoryPage() {
               <div key={date}>
                 <div className="date-divider">{date}</div>
                 {msgs.map(m => (
-                  <div key={m.id} className="msg-row" style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                    <div>
+                  <div key={m.id} className="msg-row">
+                    <div className="msg-col">
                       <div className="trigger-pill">{fmtTrigger(m.trigger_type)}</div>
                       <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: m.message.replace(/\n/g, '<br/>') }} />
                       <div className="msg-meta">{fmtTime(m.sent_at)}</div>
