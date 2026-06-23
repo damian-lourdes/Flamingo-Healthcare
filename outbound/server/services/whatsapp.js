@@ -126,7 +126,7 @@ async function sendTemplate(to, templateName, languageCode, bodyParams = [], boo
       parameters: bodyParams.map((t, i) => {
         const isLast = i === bodyParams.length - 1;
         const text = isLast
-          ? String(t ?? '').trim() || '-'
+          ? String(t ?? '').replace(/\s*\n+\s*/g, ' | ').trim() || '-'
           : String(t ?? '').replace(/\s*\n+\s*/g, ' ').replace(/\s{4,}/g, '   ').trim() || '-';
         return { type: 'text', text };
       }),
