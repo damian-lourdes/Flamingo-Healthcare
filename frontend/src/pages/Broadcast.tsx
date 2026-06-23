@@ -359,12 +359,21 @@ export function BroadcastPage() {
                   </div>
                 )}
 
-                {selectedTemplate && tplValues.map((v, i) => (
-                  <input key={i} className="inp" style={{ marginBottom: 8 }}
-                    placeholder={`{{${i + 2}}}`}
-                    value={v}
-                    onChange={e => setTplValues(vals => vals.map((x, j) => j === i ? e.target.value : x))} />
-                ))}
+                {selectedTemplate && tplValues.map((v, i) => {
+                  const isLast = i === tplValues.length - 1
+                  return isLast ? (
+                    <textarea key={i} className="inp" rows={5}
+                      style={{ marginBottom: 8, resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+                      placeholder={`{{${i + 2}}} — supports multiple lines`}
+                      value={v}
+                      onChange={e => setTplValues(vals => vals.map((x, j) => j === i ? e.target.value : x))} />
+                  ) : (
+                    <input key={i} className="inp" style={{ marginBottom: 8 }}
+                      placeholder={`{{${i + 2}}}`}
+                      value={v}
+                      onChange={e => setTplValues(vals => vals.map((x, j) => j === i ? e.target.value : x))} />
+                  )
+                })}
                 {selectedTemplate && tplValues.length === 0 && (
                   <div style={{ fontSize: 12, color: 'var(--text3)' }}>This template only needs the recipient's name — no extra fields.</div>
                 )}
