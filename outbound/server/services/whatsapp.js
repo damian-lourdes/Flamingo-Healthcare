@@ -123,10 +123,13 @@ async function sendTemplate(to, templateName, languageCode, bodyParams = [], boo
   if (bodyParams.length) {
     components.push({
       type: 'body',
-      parameters: bodyParams.map(t => ({
-      type: 'text',
-      text: String(t ?? '').replace(/\s*\n+\s*/g, ' ').replace(/\s{4,}/g, '   ').trim() || '-',
-    })),
+      parameters: bodyParams.map((t, i) => {
+        const isLast = i === bodyParams.length - 1;
+        const text = isLast
+          ? String(t ?? '').trim() || '-'
+          : String(t ?? '').replace(/\s*\n+\s*/g, ' ').replace(/\s{4,}/g, '   ').trim() || '-';
+        return { type: 'text', text };
+      }),
     });
   }
 
