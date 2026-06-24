@@ -193,7 +193,7 @@ export const api = {
       '/api/templates/upload-image', { method: 'POST', body: form }
     )
   },
-  sendTemplateMsg: (body: {name:string; language?:string; params:string[]; recipients:{phone:string; name?:string}[]; campaignName?:string; headerMediaId?:string}) =>
+  sendTemplateMsg: (body: {name:string; language?:string; params:string[]; placeholderCount?:number; recipients:{phone:string; name?:string}[]; campaignName?:string; headerMediaId?:string}) =>
     post<BroadcastSendResult>('/api/templates/send', body),
   getSetting:      (key: string) => get<{key: string; value: string | null}>('/api/dashboard/settings/' + key, { key, value: null }),
   setSetting:      (key: string, value: string) => post<SuccessResponse>('/api/dashboard/settings/' + key, { value }),

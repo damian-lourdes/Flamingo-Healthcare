@@ -182,7 +182,7 @@ export function BroadcastPage() {
     const t = templates.find(x => x.name === selTpl)
     const r = await api.sendTemplateMsg({
       name: selTpl, language: t?.language || 'en',
-      params: tplValues, recipients: parseRecipients(cpRecip),
+      params: tplValues, placeholderCount: t?.placeholder_count ?? undefined, recipients: parseRecipients(cpRecip),
       campaignName: selTpl,
       ...(bannerMediaId ? { headerMediaId: bannerMediaId } : {}),
     })

@@ -60,6 +60,7 @@ router.post('/send', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'name and recipients[] required' });
     }
     const fixedParams = Array.isArray(params) ? params : [];
+    const placeholderCount = typeof req.body.placeholderCount === 'number' ? req.body.placeholderCount : null;
     // Fetch the template's raw body_text so broadcastTemplate can log each
     // recipient's actual rendered message to Message History, instead of
     // the generic "Template send: <name>" placeholder.
@@ -68,7 +69,7 @@ router.post('/send', async (req, res, next) => {
       recipients,
       templateName: name,
       lang: language || 'en',
-      paramsFor: (patientName) => [patientName || 'there', ...fixedParams],
+      paramsFor: (patientName) => placeholderCount === 0 ? [] : [patientName || 'there', ...fixedParams],
       campaignName: req.body.campaignName || name,
       logMessage: req.body.logMessage || `Template send: ${name}`,
       headerMediaId,
